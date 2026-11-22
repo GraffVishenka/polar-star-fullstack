@@ -28,8 +28,10 @@ $env:TMP = $env:GOTMPDIR
 $env:GOSUMDB = 'off'
 $env:GOFLAGS = '-mod=mod'
 
-$env:NODE_EXE = 'C:\Users\GraffVishenka\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+$env:NODE_DIR = 'C:\Users\GraffVishenka\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin'
+$env:NODE_EXE = Join-Path $env:NODE_DIR 'node.exe'
 $env:PNPM_JS = 'C:\Users\GraffVishenka\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin\pnpm.mjs'
+$env:Path = "$env:NODE_DIR;$env:Path"
 $env:PNPM_HOME = Join-Path $cacheRoot 'pnpm'
 $env:NPM_CONFIG_STORE_DIR = Join-Path $cacheRoot 'pnpm-store'
 $env:NPM_CONFIG_CACHE = Join-Path $cacheRoot 'npm-cache'
