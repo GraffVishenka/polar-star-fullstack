@@ -394,7 +394,6 @@ paths:
           $ref: '#/components/responses/OkKbTree'
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/kb/nodes/{id}:
     get:
       tags: [Public]
@@ -410,7 +409,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/settings:
     get:
       tags: [Public]
@@ -423,7 +421,6 @@ paths:
         '200':
           $ref: '#/components/responses/OkPublicSettings'
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/problem-types:
     get:
       tags: [Public]
@@ -436,7 +433,6 @@ paths:
         '200':
           $ref: '#/components/responses/OkPublicProblemTypes'
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/tickets:
     get:
       tags: [Tickets]
@@ -708,7 +704,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/files/{id}:
     get:
       tags: [Files]
@@ -729,7 +724,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/kb/tree:
     get:
       tags: [KB]
@@ -744,7 +738,6 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/kb/nodes:
     post:
       tags: [KB]
@@ -768,7 +761,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/kb/nodes/{id}:
     get:
       tags: [KB]
@@ -786,7 +778,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     patch:
       tags: [KB]
       operationId: updateKbNode
@@ -812,7 +803,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [KB]
       operationId: deleteKbNode
@@ -830,7 +820,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/kb/nodes/{id}/move:
     post:
       tags: [KB]
@@ -856,7 +845,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/kb/nodes/{id}/visibility:
     patch:
       tags: [KB]
@@ -882,7 +870,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/users/assignable:
     get:
       tags: [Users]
@@ -931,7 +918,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/stats/export.xlsx:
     get:
       tags: [Stats]
@@ -992,7 +978,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/users:
     get:
       tags: [Users]
@@ -1023,7 +1008,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Users]
       operationId: createAdminUser
@@ -1048,7 +1032,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/users/{id}:
     patch:
       tags: [Users]
@@ -1078,7 +1061,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/users/{id}/password:
     post:
       tags: [Users]
@@ -1104,7 +1086,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/buildings:
     get:
       tags: [Buildings]
@@ -1124,7 +1105,6 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Buildings]
       operationId: createBuilding
@@ -1146,7 +1126,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/buildings/{id}:
     patch:
       tags: [Buildings]
@@ -1172,7 +1151,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Buildings]
       operationId: deleteBuilding
@@ -1191,7 +1169,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/warehouses:
     get:
       tags: [Buildings]
@@ -1210,7 +1187,6 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Buildings]
       operationId: createWarehouse
@@ -1234,7 +1210,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/warehouses/{id}:
     patch:
       tags: [Buildings]
@@ -1261,7 +1236,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Buildings]
       operationId: deleteWarehouse
@@ -1280,7 +1254,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/equipment:
     get:
       tags: [Equipment]
@@ -1311,7 +1284,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Equipment]
       operationId: createEquipment
@@ -1335,7 +1307,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/equipment/{id}:
     get:
       tags: [Equipment]
@@ -1353,7 +1324,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     patch:
       tags: [Equipment]
       operationId: updateEquipment
@@ -1379,7 +1349,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Equipment]
       operationId: deleteEquipment
@@ -1397,7 +1366,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/equipment/{id}/move:
     post:
       tags: [Equipment]
@@ -1426,7 +1394,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/equipment/bulk-move:
     post:
       tags: [Equipment]
@@ -1475,7 +1442,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/warehouses/{id}/inventory.xlsx:
     get:
       tags: [Equipment]
@@ -1517,7 +1483,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/equipment-types:
     get:
       tags: [Settings]
@@ -1539,7 +1504,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/settings:
     get:
       tags: [Settings]
@@ -1555,7 +1519,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     put:
       tags: [Settings]
       operationId: updateSettings
@@ -1579,7 +1542,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/problem-types:
     get:
       tags: [Settings]
@@ -1601,7 +1563,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Settings]
       operationId: createProblemType
@@ -1623,7 +1584,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/problem-types/{id}:
     patch:
       tags: [Settings]
@@ -1649,7 +1609,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Settings]
       operationId: deleteProblemType
@@ -1669,7 +1628,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/equipment-types:
     get:
       tags: [Settings]
@@ -1691,7 +1649,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Settings]
       operationId: createEquipmentType
@@ -1713,7 +1670,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/equipment-types/{id}:
     patch:
       tags: [Settings]
@@ -1739,7 +1695,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Settings]
       operationId: deleteEquipmentType
@@ -1759,7 +1714,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/holidays:
     get:
       tags: [Settings]
@@ -1780,7 +1734,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Settings]
       operationId: createHoliday
@@ -1803,7 +1756,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/holidays/{id}:
     patch:
       tags: [Settings]
@@ -1830,7 +1782,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Settings]
       operationId: deleteHoliday
@@ -1847,7 +1798,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/push/public-key:
     get:
       tags: [Push]
@@ -1927,7 +1877,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/trash/{type}/{id}/restore:
     post:
       tags: [Trash]
@@ -1960,7 +1909,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/trash/{type}/{id}:
     delete:
       tags: [Trash]
@@ -1983,7 +1931,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /health:
     get:
       tags: [System]
@@ -3230,6 +3177,10 @@ components:
           items: {$ref: '#/components/schemas/StatsMonth'}
     StatsListResponse:
       type: object
+      description: |
+        Сводная статистика по сотрудникам. Б9 отдаёт массив `items` (по одному
+        StatsResponse на сотрудника) — поле `employees` не вводится, чтобы не
+        дублировать данные и не ломать контракт.
       required: [items]
       properties:
         items:

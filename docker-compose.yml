@@ -54,6 +54,10 @@ services:
       SEED_ADMIN_LOGIN: ${SEED_ADMIN_LOGIN:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe_12345}
       SEED_ADMIN_FULL_NAME: ${SEED_ADMIN_FULL_NAME:-Администратор}
+      # Б13: демо-данные (4 здания, 50 заявок, 25 единиц оборудования, дерево БЗ,
+      # праздники). Включаются идемпотентно: `make seed-demo`.
+      SEED_DEMO: ${SEED_DEMO:-false}
+      SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:-Demo_12345}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
@@ -68,6 +72,25 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+
+  # Фронтенд: собранная SPA + nginx, проксирует /api на сервис api (см.
+  # frontend/nginx.conf). TLS — на внешнем reverse proxy (PLAN §4, п. 21).
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
 volumes:
   mysql-data:
