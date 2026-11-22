@@ -1,0 +1,74 @@
+# Локальный стек: MySQL 8.4 + API. Reverse proxy/TLS — внешний (PLAN §4, п. 21).
+# Значения по умолчанию предназначены только для разработки; для production
+# задайте секреты в .env (JWT_SECRET, пароли, VAPID).
+
+name: polar-star-service
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command:
+      # Единая таймзона хранения (DATETIME в UTC, NFR-7) и utf8mb4.
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-polar_star}
+      MYSQL_USER: ${MYSQL_USER:-polar}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-polar}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PORT: 8080
+      # MySQL поднимается в UTC; DATABASE_URL — стандартный mysql://-URL.
+      DATABASE_URL: mysql://${MYSQL_USER:-polar}:${MYSQL_PASSWORD:-polar}@tcp(mysql:3306)/${MYSQL_DATABASE:-polar_star}
+      # NFR-2: минимум 32 символа. Замените значение в .env.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-please-32}
+      TZ: ${TZ:-Asia/Yekaterinburg}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://localhost:8081}
+      UPLOAD_DIR: /data/uploads
+      SEED_ADMIN_LOGIN: ${SEED_ADMIN_LOGIN:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe_12345}
+      SEED_ADMIN_FULL_NAME: ${SEED_ADMIN_FULL_NAME:-Администратор}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - uploads:/data/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+volumes:
+  mysql-data:
+  uploads:
