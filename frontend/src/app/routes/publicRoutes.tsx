@@ -5,9 +5,9 @@
 import type { RouteObject } from 'react-router-dom';
 import { RequireAnonOnly } from '@/auth/guards';
 import { PublicLayout } from '@/layouts/PublicLayout';
-import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
 import { BuildingDashboardPage } from '@/pages/public/BuildingDashboardPage';
 import { BuildingSelectPage } from '@/pages/public/BuildingSelectPage';
+import { PublicKbPage } from '@/pages/public/PublicKbPage';
 import { PublicTicketPage } from '@/pages/public/PublicTicketPage';
 
 export const publicRoutes: RouteObject[] = [
@@ -25,17 +25,7 @@ export const publicRoutes: RouteObject[] = [
       },
       { path: 'b/:buildingId', element: <BuildingDashboardPage /> },
       { path: 't/:token', element: <PublicTicketPage /> },
-      {
-        path: 'public/kb',
-        element: (
-          <PlaceholderPage
-            title="База знаний"
-            block="Ф3"
-            owner="fe-2"
-            description="Публичное дерево статей (PUB-7) доступно без входа"
-          />
-        ),
-      },
+      { path: 'public/kb', element: <PublicKbPage /> },
     ],
   },
 ];
