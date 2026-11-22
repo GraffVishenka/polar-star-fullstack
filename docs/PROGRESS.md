@@ -18,7 +18,7 @@
 | Б10 Корзина | `feat/back-b10-trash` | готово | `7f7a8ab` |
 | Б11 Документы Word/Excel | `feat/back-b11-documents` | готово | `5734981` |
 | Б12 Массовые перемещения | `feat/back-b12-bulk-move` | готово | `1a31d47` |
-| Б13 Интеграция и HANDOVER | — | ожидает | — |
+| Б13 Интеграция и HANDOVER | `feat/back-b13-integration` | готово | `e5e1da9` |
 
 ## Frontend (React + TS)
 
