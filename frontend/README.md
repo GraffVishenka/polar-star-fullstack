@@ -248,23 +248,19 @@ Word-выгрузка уже стоит в `TicketDrawer` (`/tickets`) и на �
 
 ## Ограничения Ф5
 
-- **Контракт-гэпы** (все три — аддитивные расширения, нужен `openapi.yaml` и согласование
-  с lead/be; клиент уже работает через MSW):
-  1. `GET /api/public/problem-types` — анониму нужен справочник для формы (TICKET-4),
-     в §3.13 он есть только у ADMIN;
-  2. `GET /api/public/tickets/{token}/comments?page&size` — публичная пагинация
-     комментариев по 50 (в контракте был только POST);
-  3. `POST /api/public/tickets/{token}/files` (multipart) — вложение комментария анонима:
-     `POST /api/files` доступен только USER/ADMIN, а PUB-6 разрешает файлы.
+- **Контракт-гэпы**: два из трёх закрыты бэкендом Б5 — `GET /api/public/tickets/{token}/comments`
+  (пагинация 50) и `POST /api/public/tickets/{token}/files` (алиас `/api/public/files?token=`)
+  уже в `openapi.yaml`, клиент использует их. Остаётся `GET /api/public/problem-types` —
+  анониму нужен справочник для формы (TICKET-4), в контракте он есть только у ADMIN
+  (`src/api/public.ts`, мок `handlers/public.ts`; нужен аддитивный эндпоинт).
 - Публичная доска не показывает `is_overdue`: TICKET-5 не включает флаг в карточку,
   поэтому просрочка отображается только в токен-карточке (NFR-7 — не считаем на клиенте).
 - Медиа статей БЗ в дереве/статье переписывается на `/api/public/files/{id}`
   (в контракте `<img src="/api/files/{id}">` требует авторизации).
 - В jsdom MSW не разбирает `multipart/form-data`, поэтому тесты публичного комментария
   подменяют `uploadPublicCommentFile`; сам транспорт и лимиты проверяются в Ф1/Б3.
-- Ф8 доработает `ExportButton` (состояния/ошибки) для публичной карточки; сейчас кнопка
-  использует общий компонент и `skipAuth`.
-- Ф11: Playwright-сценарии публичного периметра (приватное окно, cookie, Word, 375 px).
+- Word/Excel-выгрузки в Ф8 переведены на общий `useFileDownload` (см. раздел ниже);
+  Ф11: Playwright-сценарии публичного периметра (приватное окно, cookie, Word, 375 px).
 
 ## Docker
 
