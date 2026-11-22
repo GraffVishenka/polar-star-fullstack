@@ -50,6 +50,10 @@ func (s *Server) routes() http.Handler {
 		api.Get("/public/tickets/{token}", s.publicGetTicket)
 		api.Get("/public/tickets/{token}/comments", s.publicListComments)
 		api.Post("/public/tickets/{token}/comments", s.publicAddComment)
+		// Алиас загрузки вложения анонимом (Ф5): токен заявки передаётся в
+		// пути, внутри запроса транслируется в ?token= для files-слоя (Б3).
+		api.With(middleware.RateLimit(s.publicFilesLimiter, middleware.ClientIPKey)).
+			Post("/public/tickets/{token}/files", s.publicTicketUpload)
 		api.Get("/public/tickets/{token}/export.docx", s.notImplemented)
 
 		// Файлы анонимной заявки (Б3, TICKET-13/TICKET-14).
@@ -378,4 +382,19 @@ func (s *Server) publicAddComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.PublicTicketsHandler.PublicAddComment(w, r)
+}
+
+// publicTicketUpload — алиас POST /api/public/tickets/{token}/files (Ф5):
+// files-слой принимает токен в query, поэтому переносим {token} из пути.
+func (s *Server) publicTicketUpload(w http.ResponseWriter, r *http.Request) {
+	if s.deps.FilesHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	if token := chi.URLParam(r, "token"); token != "" {
+		query := r.URL.Query()
+		query.Set("token", token)
+		r.URL.RawQuery = query.Encode()
+	}
+	s.deps.FilesHandler.PublicUpload(w, r)
 }

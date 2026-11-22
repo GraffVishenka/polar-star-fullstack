@@ -198,3 +198,34 @@ func TestHandler_PublicGetWrongToken404(t *testing.T) {
 		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
 	}
 }
+
+// TICKET-14: комментарии по умолчанию отдаются по 50 на страницу.
+func TestHandler_PublicCommentsDefaultSize(t *testing.T) {
+	handler, f := newTestHandler(t)
+	_, token, err := f.service.CreatePublic(context.Background(), PublicCreateInput{
+		BuildingID: 1, ApplicantName: "Гость", Cabinet: "1", ProblemTypeID: 10, Description: "Текст",
+	})
+	if err != nil {
+		t.Fatalf("CreatePublic: %v", err)
+	}
+	if _, err := f.service.AddPublicComment(context.Background(), token, "комментарий", nil); err != nil {
+		t.Fatalf("AddPublicComment: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/public/tickets/x/comments", nil)
+	req = withRouteParam(req, "token", token)
+	rec := perform(handler.PublicComments, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var body CommentListDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if body.Size != 50 || body.Total != 1 || len(body.Items) != 1 {
+		t.Fatalf("public comments: %+v", body)
+	}
+	if body.Items[0].AuthorName != "Гость" {
+		t.Fatalf("author = %q", body.Items[0].AuthorName)
+	}
+}

@@ -211,7 +211,7 @@ func (h *Handler) ListComments(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	page, size, err := parsePagination(r.URL.Query())
+	page, size, err := parsePaginationDefault(r.URL.Query(), commentPageSize)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -335,7 +335,7 @@ func (h *Handler) PublicGet(w http.ResponseWriter, r *http.Request) {
 // PublicComments — GET /api/public/tickets/{token}/comments.
 func (h *Handler) PublicComments(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
-	page, size, err := parsePagination(r.URL.Query())
+	page, size, err := parsePaginationDefault(r.URL.Query(), commentPageSize)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -468,8 +468,15 @@ func pathID(r *http.Request) (int64, error) {
 	return id, nil
 }
 
+// commentPageSize — TICKET-14: комментарии отдаются по 50 на страницу.
+const commentPageSize = 50
+
 func parsePagination(q url.Values) (page, size int, err error) {
-	page, size = 1, 20
+	return parsePaginationDefault(q, 20)
+}
+
+func parsePaginationDefault(q url.Values, defaultSize int) (page, size int, err error) {
+	page, size = 1, defaultSize
 	if raw := q.Get("page"); raw != "" {
 		value, convErr := strconv.Atoi(raw)
 		if convErr != nil || value < 1 {
