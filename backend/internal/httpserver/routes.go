@@ -107,7 +107,7 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 	r.Post("/kb/nodes/{id}/move", s.notImplemented)
 
 	// Пользователи и статистика (Б2, Б9).
-	r.Get("/users/assignable", s.notImplemented)
+	r.Get("/users/assignable", s.usersAssignable)
 	r.Get("/stats/me", s.notImplemented)
 	r.Get("/stats/export.xlsx", s.notImplemented)
 
@@ -134,8 +134,7 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 }
 
 // adminRoutes — маршруты только для ADMIN (PLAN §3.13).
-func (s *Server) adminRoutes(r chi.Router) {
-	// Заявки: удаление в корзину — только ADMIN (TICKET-12).
+func (s *Server) adminRoutes(r chi.Router) { // Заявки: удаление в корзину — только ADMIN (TICKET-12).
 	r.Delete("/tickets/{id}", s.notImplemented)
 
 	// БЗ: удаление и тумблер видимости — только ADMIN (KB-3, KB-7).
@@ -143,10 +142,10 @@ func (s *Server) adminRoutes(r chi.Router) {
 	r.Patch("/kb/nodes/{id}/visibility", s.notImplemented)
 
 	// Пользователи (AUTH-4..AUTH-9, Б2).
-	r.Get("/admin/users", s.notImplemented)
-	r.Post("/admin/users", s.notImplemented)
-	r.Patch("/admin/users/{id}", s.notImplemented)
-	r.Post("/admin/users/{id}/password", s.notImplemented)
+	r.Get("/admin/users", s.usersList)
+	r.Post("/admin/users", s.usersCreate)
+	r.Patch("/admin/users/{id}", s.usersUpdate)
+	r.Post("/admin/users/{id}/password", s.usersResetPassword)
 
 	// Здания и склады: запись/деактивация — ADMIN (EQ-6).
 	r.Post("/buildings", s.notImplemented)
@@ -179,4 +178,47 @@ func (s *Server) adminRoutes(r chi.Router) {
 	r.Get("/admin/trash", s.notImplemented)
 	r.Post("/admin/trash/{type}/{id}/restore", s.notImplemented)
 	r.Delete("/admin/trash/{type}/{id}", s.notImplemented)
+}
+
+// Обёртки Б2: пока UsersHandler не подключён (например, в тестах Б1),
+// маршруты остаются замороженными заглушками 501. В проде main всегда
+// передаёт реальный handler.
+func (s *Server) usersList(w http.ResponseWriter, r *http.Request) {
+	if s.deps.UsersHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.UsersHandler.List(w, r)
+}
+
+func (s *Server) usersCreate(w http.ResponseWriter, r *http.Request) {
+	if s.deps.UsersHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.UsersHandler.Create(w, r)
+}
+
+func (s *Server) usersUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.deps.UsersHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.UsersHandler.Update(w, r)
+}
+
+func (s *Server) usersResetPassword(w http.ResponseWriter, r *http.Request) {
+	if s.deps.UsersHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.UsersHandler.ResetPassword(w, r)
+}
+
+func (s *Server) usersAssignable(w http.ResponseWriter, r *http.Request) {
+	if s.deps.UsersHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.UsersHandler.Assignable(w, r)
 }
