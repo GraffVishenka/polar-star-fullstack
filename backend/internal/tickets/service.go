@@ -187,6 +187,9 @@ func (s *Service) List(ctx context.Context, actor *auth.User, filter ListFilter)
 	if filter.DateFrom != nil && filter.DateTo != nil && filter.DateFrom.After(*filter.DateTo) {
 		return nil, validation("date_from", "начало периода позже конца")
 	}
+	if filter.ExecutorNone && filter.ExecutorID != nil {
+		return nil, validation("executor_id", "укажите либо id исполнителя, либо none")
+	}
 	filter.Search = strings.TrimSpace(filter.Search)
 	if len([]rune(filter.Search)) > 120 {
 		return nil, validation("search", "максимум 120 символов")
@@ -206,6 +209,7 @@ func (s *Service) List(ctx context.Context, actor *auth.User, filter ListFilter)
 		BuildingID:    buildingID,
 		Statuses:      filter.Statuses,
 		ExecutorID:    filter.ExecutorID,
+		ExecutorNone:  filter.ExecutorNone,
 		ProblemTypeID: filter.ProblemTypeID,
 		Search:        filter.Search,
 		Sort:          filter.Sort,

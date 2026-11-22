@@ -60,6 +60,7 @@ type ListParams struct {
 	BuildingID    *int64
 	Statuses      []Status
 	ExecutorID    *int64
+	ExecutorNone  bool
 	ProblemTypeID *int64
 	DateFrom      *time.Time // UTC, включительно
 	DateTo        *time.Time // UTC, не включительно
@@ -225,6 +226,10 @@ func (r *MySQLRepository) List(ctx context.Context, params ListParams) ([]*Ticke
 	if params.ExecutorID != nil {
 		where = append(where, "t.executor_id = ?")
 		args = append(args, *params.ExecutorID)
+	}
+	if params.ExecutorNone {
+		// Ф2: сентинел `executor_id=none` — только заявки без исполнителя.
+		where = append(where, "t.executor_id IS NULL")
 	}
 	if params.ProblemTypeID != nil {
 		where = append(where, "t.problem_type_id = ?")

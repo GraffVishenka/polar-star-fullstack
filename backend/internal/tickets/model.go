@@ -116,9 +116,12 @@ type OptionalDate struct {
 
 // ListFilter — фильтры авторизованного списка (TICKET-15).
 type ListFilter struct {
-	BuildingID    *int64
-	Statuses      []Status
-	ExecutorID    *int64
+	BuildingID *int64
+	Statuses   []Status
+	ExecutorID *int64
+	// ExecutorNone — сентинел `executor_id=none`: только заявки без
+	// исполнителя (клиентский фильтр «Не назначен», Ф2).
+	ExecutorNone  bool
 	ProblemTypeID *int64
 	DateFrom      *time.Time // локальная дата начала (включительно)
 	DateTo        *time.Time // локальная дата конца (включительно)
