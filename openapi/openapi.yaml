@@ -306,7 +306,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/files:
     post:
       tags: [Public]
@@ -623,7 +622,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/tickets/{id}/comments:
     get:
       tags: [Tickets]
@@ -965,7 +963,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/stats:
     get:
       tags: [Stats]
@@ -1499,7 +1496,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/problem-types:
     get:
       tags: [Settings]
