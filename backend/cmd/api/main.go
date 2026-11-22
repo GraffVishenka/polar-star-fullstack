@@ -22,11 +22,13 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/buildings"
 	"github.com/graffvishenka/polar-star-service/backend/internal/config"
 	"github.com/graffvishenka/polar-star-service/backend/internal/db"
+	"github.com/graffvishenka/polar-star-service/backend/internal/dictionaries"
 	"github.com/graffvishenka/polar-star-service/backend/internal/equipment"
 	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
 	"github.com/graffvishenka/polar-star-service/backend/internal/kb"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
+	"github.com/graffvishenka/polar-star-service/backend/internal/settings"
 	"github.com/graffvishenka/polar-star-service/backend/internal/tickets"
 	"github.com/graffvishenka/polar-star-service/backend/internal/users"
 )
@@ -121,12 +123,20 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		return err
 	}
 
-	// Платформенные зависимости: реальные часы, календарь по умолчанию (маска
-	// Пн–Сб, без праздников), заглушка Notifier до Б8. Б7 заменит календарь на
-	// настройки из БД через тот же интерфейс.
+	// Платформенные зависимости: реальные часы и заглушка Notifier до Б8.
 	clock := platform.RealClock{}
-	calendar := platform.NewDefaultCalendar(cfg.Location, platform.DefaultWorkdays(), nil, clock)
 	notifier := &platform.LogNotifier{Logger: logger}
+
+	// Б7: настройки, праздники и рабочий календарь берутся из БД. Ошибка чтения
+	// не блокирует старт API: остаются значения по умолчанию (Пн–Сб,
+	// Asia/Yekaterinburg, 10:00), а календарь пересоберётся при следующем
+	// изменении настроек (CAL-5).
+	settingsService := settings.NewService(
+		settings.NewMySQLRepository(pool), clock, logger, settings.WithLocation(cfg.Location))
+	if err := settingsService.Reload(ctx); err != nil {
+		logger.Warn("settings: настройки недоступны, используются значения по умолчанию", "error", err)
+	}
+	calendar := settingsService.Provider()
 
 	repository := auth.NewMySQLRepository(pool)
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTokenTTL, clock)
@@ -161,11 +171,19 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	equipmentHandler := equipment.NewHandler(
 		equipment.NewService(equipment.NewMySQLRepository(pool)), logger)
 
-	// Б5: заявки. До готовности Б7 настройки статические (deadline_days=2);
-	// вложения привязываются к комментариям через files.Service (Б3).
+	// Б7: настройки/праздники (CAL-1..CAL-3) и справочники видов проблем и
+	// типов оборудования.
+	settingsHandler := settings.NewHandler(settingsService, logger)
+	dictionariesHandler := dictionaries.NewHandler(
+		dictionaries.NewService(dictionaries.NewMySQLRepository(pool)), logger)
+
+	// Б5: заявки. Настройки заявок берутся из settings-сервиса (Б7): срок
+	// дедлайна, календарь и названия/цвета статусов (TICKET-1, TICKET-3).
+	// Адаптер объявлен ниже, чтобы домены settings и tickets не зависели
+	// друг от друга.
 	ticketsRepository := tickets.NewMySQLRepository(pool)
-	ticketsSettings := tickets.NewStaticSettings(2, calendar)
-	ticketsService := tickets.NewService(ticketsRepository, usersRepository, ticketsSettings,
+	ticketsService := tickets.NewService(ticketsRepository, usersRepository,
+		ticketSettingsAdapter{provider: settingsService.Provider()},
 		clock, notifier, tickets.NewFilesAttacher(filesService), logger)
 	ticketsHandler := tickets.NewHandler(ticketsService, logger)
 
@@ -200,6 +218,8 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		TicketsHandler:       ticketsHandler,
 		PublicTicketsHandler: ticketsHandler,
 		KBHandler:            kbHandler,
+		SettingsHandler:      settingsHandler,
+		DictionariesHandler:  dictionariesHandler,
 	})
 
 	server := &http.Server{
@@ -252,4 +272,25 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 func newLogger(cfg *config.Config) *slog.Logger {
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
 	return slog.New(handler).With("service", "polar-star-api", "env", cfg.AppEnv)
+}
+
+// ticketSettingsAdapter связывает настройки Б7 с доменом заявок (Б5):
+// срок дедлайна и календарь берутся из CalendarProvider (актуальный снапшот
+// настроек), названия и цвета статусов — из тех же настроек (TICKET-1).
+// Адаптер объявлен в cmd/api, чтобы домены settings и tickets не зависели
+// друг от друга; при недоступной БД провайдер отдаёт значения по умолчанию.
+type ticketSettingsAdapter struct {
+	provider *settings.CalendarProvider
+}
+
+// DeadlineDays — N рабочих дней для дедлайна (TICKET-3).
+func (a ticketSettingsAdapter) DeadlineDays() int { return a.provider.DeadlineDays() }
+
+// Calendar — рабочий календарь с маской и праздниками из настроек (CAL-1).
+func (a ticketSettingsAdapter) Calendar() platform.Calendar { return a.provider.Calendar() }
+
+// StatusStyle — настраиваемые название и цвет статуса; пустые значения
+// означают «использовать дефолт домена заявок».
+func (a ticketSettingsAdapter) StatusStyle(status tickets.Status) (string, string) {
+	return a.provider.StatusLabel(string(status)), a.provider.StatusColor(string(status))
 }

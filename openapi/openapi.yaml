@@ -412,6 +412,32 @@ paths:
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/settings:
+    get:
+      tags: [Public]
+      operationId: getPublicSettings
+      summary: Публичное подмножество настроек
+      description: |
+        TICKET-1 / PUB-1: имя приложения и названия/цвета четырёх статусов для публичного
+        дашборда. Календарь, часовой пояс, срок дедлайна и push наружу не отдаются.
+      responses:
+        '200':
+          $ref: '#/components/responses/OkPublicSettings'
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/problem-types:
+    get:
+      tags: [Public]
+      operationId: listPublicProblemTypes
+      summary: Виды проблем для анонимной заявки
+      description: |
+        TICKET-2 / TICKET-4: только активные элементы справочника, поля `id`, `name`,
+        `sort_order` — для формы создания заявки анонимом. `is_active` не раскрывается.
+      responses:
+        '200':
+          $ref: '#/components/responses/OkPublicProblemTypes'
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/tickets:
     get:
       tags: [Tickets]
@@ -1471,6 +1497,50 @@ paths:
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/problem-types:
+    get:
+      tags: [Settings]
+      operationId: listProblemTypesForStaff
+      summary: Виды проблем для форм заявок
+      description: |
+        TICKET-2: активные элементы справочника для авторизованных сотрудников.
+        `include_inactive=true` учитывается только для ADMIN (USER всегда получает активные).
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: include_inactive
+          in: query
+          description: Включить деактивированные элементы (только ADMIN).
+          schema: {type: boolean, default: false}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkProblemTypes'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/equipment-types:
+    get:
+      tags: [Settings]
+      operationId: listEquipmentTypesForStaff
+      summary: Типы оборудования для форм
+      description: |
+        EQ-2: активные элементы справочника для авторизованных сотрудников.
+        `include_inactive=true` учитывается только для ADMIN.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: include_inactive
+          in: query
+          description: Включить деактивированные элементы (только ADMIN).
+          schema: {type: boolean, default: false}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipmentTypes'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/settings:
     get:
       tags: [Settings]
@@ -1516,8 +1586,15 @@ paths:
       tags: [Settings]
       operationId: listProblemTypes
       summary: Виды проблем
-      description: Справочник `problem_types`; чтение — ADMIN (публично не отдаётся).
+      description: |-
+        Справочник `problem_types`; чтение — ADMIN. `include_inactive=true` отдаёт и
+        деактивированные элементы (для админ-панели).
       security: [{bearerAuth: []}]
+      parameters:
+        - name: include_inactive
+          in: query
+          description: Включить деактивированные элементы.
+          schema: {type: boolean, default: false}
       responses:
         '200':
           $ref: '#/components/responses/OkProblemTypes'
@@ -1578,7 +1655,9 @@ paths:
       tags: [Settings]
       operationId: deleteProblemType
       summary: Удаление/деактивация вида проблемы
-      description: ADMIN.
+      description: |-
+        ADMIN. Физического удаления нет: элемент деактивируется (`is_active=false`),
+        история заявок сохраняет название. Повторный DELETE идемпотентен.
       security: [{bearerAuth: []}]
       parameters:
         - $ref: '#/components/parameters/IdPath'
@@ -1597,8 +1676,15 @@ paths:
       tags: [Settings]
       operationId: listEquipmentTypes
       summary: Типы оборудования
-      description: Справочник `equipment_types`.
+      description: |-
+        Справочник `equipment_types`; чтение — ADMIN. `include_inactive=true` отдаёт и
+        деактивированные элементы (для админ-панели).
       security: [{bearerAuth: []}]
+      parameters:
+        - name: include_inactive
+          in: query
+          description: Включить деактивированные элементы.
+          schema: {type: boolean, default: false}
       responses:
         '200':
           $ref: '#/components/responses/OkEquipmentTypes'
@@ -1659,7 +1745,9 @@ paths:
       tags: [Settings]
       operationId: deleteEquipmentType
       summary: Удаление/деактивация типа оборудования
-      description: ADMIN.
+      description: |-
+        ADMIN. Физического удаления нет: элемент деактивируется (`is_active=false`),
+        существующее оборудование сохраняет название типа. Повторный DELETE идемпотентен.
       security: [{bearerAuth: []}]
       parameters:
         - $ref: '#/components/parameters/IdPath'
@@ -1718,6 +1806,32 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/holidays/{id}:
+    patch:
+      tags: [Settings]
+      operationId: updateHoliday
+      summary: Перенос даты праздника
+      description: |-
+        CAL-1: дата уникальна (повтор → `409`); после изменения календарь пересобирается.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HolidayUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkHoliday'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Settings]
       operationId: deleteHoliday
@@ -2165,6 +2279,18 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Settings'}
+    OkPublicSettings:
+      description: Публичное подмножество настроек (имя приложения и статусы).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PublicSettings'}
+    OkPublicProblemTypes:
+      description: Активные виды проблем для формы анонимной заявки.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/PublicProblemType'}
     OkProblemTypes:
       description: Виды проблем.
       content:
@@ -2208,6 +2334,11 @@ components:
             items: {$ref: '#/components/schemas/Holiday'}
     CreatedHoliday:
       description: Праздник добавлен.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Holiday'}
+    OkHoliday:
+      description: Праздник обновлён.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Holiday'}
@@ -3105,6 +3236,14 @@ components:
         sort_order: {type: integer}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    PublicProblemType:
+      type: object
+      description: Публичный элемент справочника для формы анонимной заявки.
+      required: [id, name, sort_order]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string, maxLength: 120}
+        sort_order: {type: integer}
     EquipmentType:
       type: object
       required: [id, name, is_active, sort_order]
@@ -3136,6 +3275,11 @@ components:
         date: {type: string, format: date}
         created_at: {type: string, format: date-time}
     HolidayCreateRequest:
+      type: object
+      required: [date]
+      properties:
+        date: {type: string, format: date}
+    HolidayUpdateRequest:
       type: object
       required: [date]
       properties:
@@ -3182,6 +3326,17 @@ components:
           type: string
           pattern: '^#[0-9A-Fa-f]{6}$'
           example: '#1677ff'
+    PublicSettings:
+      type: object
+      description: Безопасное подмножество настроек для публичного дашборда.
+      required: [app_name, statuses]
+      properties:
+        app_name: {type: string, maxLength: 200}
+        statuses:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items: {$ref: '#/components/schemas/StatusSetting'}
     SettingsUpdateRequest:
       type: object
       required:
