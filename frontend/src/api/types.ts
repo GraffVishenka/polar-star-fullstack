@@ -393,11 +393,24 @@ export interface KbDeleteResponse {
 export interface EquipmentType {
   id: number;
   name: string;
+  /**
+   * Аддитивно (Б7/Ф6): порядок в справочнике и признак активности.
+   * Деактивированный тип остаётся в старых записях оборудования.
+   */
+  sort_order?: number;
+  is_active?: boolean;
+  /** Сколько действующих записей ссылается на тип (показывает админка). */
+  usage_count?: number;
 }
 
 export interface ProblemType {
   id: number;
   name: string;
+  /** Аддитивно (Б7/Ф6): порядок в справочнике и признак активности. */
+  sort_order?: number;
+  is_active?: boolean;
+  /** Сколько действующих заявок ссылается на вид проблемы. */
+  usage_count?: number;
 }
 
 export interface Equipment {
@@ -517,6 +530,19 @@ export interface AppSettingsUpdateRequest {
   deadline_reminder_time?: string;
   push_enabled?: boolean;
   statuses?: TicketStatusSetting[];
+}
+
+/**
+ * Публичные настройки (`GET /api/public/settings`) — аддитивное расширение
+ * контракта из Б7: анонимной форме заявки и публичным экранам нужны название
+ * приложения и подписи/цвета статусов. Без паролей, праздников и push-флагов.
+ */
+export interface PublicSettings {
+  app_name: string;
+  deadline_days: number;
+  workdays: Weekday[];
+  timezone: string;
+  statuses: TicketStatusSetting[];
 }
 
 // ---------------------------------------------------------------------------

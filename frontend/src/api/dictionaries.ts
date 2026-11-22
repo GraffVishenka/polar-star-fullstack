@@ -9,8 +9,21 @@
  * настроек для названий статусов).
  */
 import { apiRequest } from './client';
-import type { ProblemType } from './types';
+import type { EquipmentType, ProblemType, PublicSettings } from './types';
 
 export function fetchProblemTypesForSelection(): Promise<ProblemType[]> {
   return apiRequest<ProblemType[]>('/problem-types');
+}
+
+/** Типы оборудования для формы: активные значения справочника (EQ-2). */
+export function fetchEquipmentTypesForSelection(): Promise<EquipmentType[]> {
+  return apiRequest<EquipmentType[]>('/equipment-types');
+}
+
+/**
+ * Публичные настройки (аддитивное расширение Б7): название приложения,
+ * календарь и подписи/цвета статусов для анонимных и авторизованных экранов.
+ */
+export function fetchPublicSettings(): Promise<PublicSettings> {
+  return apiRequest<PublicSettings>('/public/settings', { skipAuth: true });
 }

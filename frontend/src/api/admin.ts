@@ -52,15 +52,28 @@ export function updateSettings(body: AppSettingsUpdateRequest): Promise<AppSetti
 
 // --- Справочники ----------------------------------------------------------
 
+/**
+ * Тело создания/правки справочника (Ф6, аддитивно к Б7): помимо названия
+ * сервер принимает порядок сортировки и признак активности. Удаление в UI
+ * не используется — деактивированный справочник остаётся в старых записях.
+ */
+export interface DictionaryItemPayload {
+  name?: string;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
 export function fetchProblemTypes(): Promise<ProblemType[]> {
   return apiRequest<ProblemType[]>('/admin/problem-types');
 }
 
-export function createProblemType(body: { name: string }): Promise<ProblemType> {
+export function createProblemType(
+  body: DictionaryItemPayload & { name: string },
+): Promise<ProblemType> {
   return apiRequest<ProblemType>('/admin/problem-types', { method: 'POST', body });
 }
 
-export function updateProblemType(id: number, body: { name: string }): Promise<ProblemType> {
+export function updateProblemType(id: number, body: DictionaryItemPayload): Promise<ProblemType> {
   return apiRequest<ProblemType>(`/admin/problem-types/${id}`, { method: 'PATCH', body });
 }
 
@@ -72,11 +85,16 @@ export function fetchEquipmentTypes(): Promise<EquipmentType[]> {
   return apiRequest<EquipmentType[]>('/admin/equipment-types');
 }
 
-export function createEquipmentType(body: { name: string }): Promise<EquipmentType> {
+export function createEquipmentType(
+  body: DictionaryItemPayload & { name: string },
+): Promise<EquipmentType> {
   return apiRequest<EquipmentType>('/admin/equipment-types', { method: 'POST', body });
 }
 
-export function updateEquipmentType(id: number, body: { name: string }): Promise<EquipmentType> {
+export function updateEquipmentType(
+  id: number,
+  body: DictionaryItemPayload,
+): Promise<EquipmentType> {
   return apiRequest<EquipmentType>(`/admin/equipment-types/${id}`, { method: 'PATCH', body });
 }
 
@@ -95,6 +113,17 @@ export function createHoliday(body: {
   name: string;
 }): Promise<AppSettings['holidays'][number]> {
   return apiRequest<AppSettings['holidays'][number]>('/admin/holidays', { method: 'POST', body });
+}
+
+/** CAL-1: правка даты/названия праздника (дата проверяется на сервере). */
+export function updateHoliday(
+  id: number,
+  body: { date?: string; name?: string },
+): Promise<AppSettings['holidays'][number]> {
+  return apiRequest<AppSettings['holidays'][number]>(`/admin/holidays/${id}`, {
+    method: 'PATCH',
+    body,
+  });
 }
 
 export function deleteHoliday(id: number): Promise<void> {
