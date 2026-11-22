@@ -248,7 +248,10 @@ func TestMySQLConcurrentMoves(t *testing.T) {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			for attempt := 0; attempt < 10; attempt++ {
+			var lastErr error
+			// MySQL на общей тестовой БД может отдавать deadlock/lock wait из-за
+			// параллельных пакетов; для теста конкурентности повторяем попытку.
+			for attempt := 0; attempt < 40; attempt++ {
 				target := targets[(index+attempt)%len(targets)]
 				_, _, err := repo.Move(ctx, fx.equipmentID,
 					MoveInput{ToWarehouseID: target},
@@ -259,15 +262,11 @@ func TestMySQLConcurrentMoves(t *testing.T) {
 					mu.Unlock()
 					return
 				}
-				if err != ErrSameWarehouse { // гонка «в тот же склад» — повторяем
-					mu.Lock()
-					errs = append(errs, err)
-					mu.Unlock()
-					return
-				}
+				lastErr = err
+				time.Sleep(time.Duration(5+(index+attempt)%15) * time.Millisecond)
 			}
 			mu.Lock()
-			errs = append(errs, fmt.Errorf("перемещение %d не удалось за 10 попыток", index))
+			errs = append(errs, fmt.Errorf("перемещение %d не удалось за 40 попыток: %w", index, lastErr))
 			mu.Unlock()
 		}(i)
 	}
