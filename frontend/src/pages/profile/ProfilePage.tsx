@@ -3,9 +3,11 @@
  *
  * Разделы: учётная запись (ФИО, логин, роль, здание), push-уведомления
  * (подписка устройства, NOTIF-5) и смена своего пароля (AUTH-5).
- * Личная статистика появится в блоке Ф10.
+ * Личная статистика живёт на `/stats` — ссылка в шапке страницы (STATS-4).
  */
-import { Col, Flex, Row } from 'antd';
+import { BarChartOutlined } from '@ant-design/icons';
+import { Button, Col, Flex, Row } from 'antd';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { PageHeader } from '@/components/PageHeader';
 import { ProfileAccountCard } from './components/ProfileAccountCard';
@@ -23,6 +25,13 @@ export function ProfilePage() {
           isAdmin
             ? 'Администратор не привязан к зданию и видит данные всех зданий (AUTH-4).'
             : 'Личные данные, уведомления и пароль. Уведомления приходят только по вашему зданию.'
+        }
+        extra={
+          <Link to="/stats">
+            <Button icon={<BarChartOutlined />} data-testid="profile-stats-link">
+              Моя статистика
+            </Button>
+          </Link>
         }
       />
 
