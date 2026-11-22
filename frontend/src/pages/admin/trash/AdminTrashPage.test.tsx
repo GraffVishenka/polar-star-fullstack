@@ -110,16 +110,16 @@ describe('AdminTrashPage: список и восстановление', () => {
     await screen.findByTestId('trash-card');
     await openTab('База знаний');
 
-    const restore = await screen.findByTestId('trash-restore-kb-13');
+    const restore = await screen.findByTestId('trash-restore-kb-990');
     const row = restore.closest('tr') as HTMLElement;
     expect(row).toHaveTextContent('Архивная инструкция');
-    expect(within(row).getByTestId('trash-warning-kb-13')).toHaveTextContent('TRASH-5');
+    expect(within(row).getByTestId('trash-warning-kb-990')).toHaveTextContent('TRASH-5');
 
     await userEvent.click(restore);
     await userEvent.click(await screen.findByTestId('confirm-dialog-ok'));
 
     await waitFor(() =>
-      expect(screen.queryByTestId('trash-restore-kb-13')).not.toBeInTheDocument(),
+      expect(screen.queryByTestId('trash-restore-kb-990')).not.toBeInTheDocument(),
     );
     const tree = await fetchKbTree();
     expect(tree.some((node) => node.title === 'Архивная инструкция')).toBe(true);

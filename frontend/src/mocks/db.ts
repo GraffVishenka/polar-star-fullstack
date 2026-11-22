@@ -941,10 +941,10 @@ export function createSeed(): MockDb {
         deleted_by_user_id: 1,
         snapshot: { title: 'Заявки на проверку', parent_id: 10 },
       },
-      // Узел 13 уже удалён из дерева: восстанавливается из снимка в корень.
+      // Узел 990 уже удалён из дерева: восстанавливается из снимка в корень.
       {
         type: 'kb',
-        id: 13,
+        id: 990,
         deleted_at: isoDaysAgo(9),
         deleted_by_user_id: 1,
         snapshot: { title: 'Архивная инструкция', parent_id: null },

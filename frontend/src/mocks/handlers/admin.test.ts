@@ -57,7 +57,7 @@ describe('MSW: корзина', () => {
   });
 
   it('восстанавливает корневой узел БЗ из снимка (TRASH-2)', async () => {
-    await restoreTrashItem('kb', 13);
+    await restoreTrashItem('kb', 990);
 
     const tree = await fetchKbTree();
     const restored = tree.find((node) => node.title === 'Архивная инструкция');
