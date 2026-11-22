@@ -123,11 +123,12 @@ function dictionaryNameError(
   return duplicate ? { status: 409, code: 'CONFLICT', message: 'Такое название уже есть' } : null;
 }
 
-function parseDictionaryBody(body: {
-  name?: unknown;
-  sort_order?: unknown;
-  is_active?: unknown;
-}): { name?: string; sort_order?: number; is_active?: boolean; error?: string } {
+function parseDictionaryBody(body: { name?: unknown; sort_order?: unknown; is_active?: unknown }): {
+  name?: string;
+  sort_order?: number;
+  is_active?: boolean;
+  error?: string;
+} {
   const parsed: { name?: string; sort_order?: number; is_active?: boolean; error?: string } = {};
   if (body.name !== undefined) {
     parsed.name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -535,7 +536,8 @@ export const adminHandlers = [
     }
     if (body.name !== undefined) {
       const name = String(body.name).trim();
-      if (!name) return validation('Название праздника не может быть пустым', { name: 'обязательное' });
+      if (!name)
+        return validation('Название праздника не может быть пустым', { name: 'обязательное' });
       holiday.name = name;
     }
     return json(holiday);

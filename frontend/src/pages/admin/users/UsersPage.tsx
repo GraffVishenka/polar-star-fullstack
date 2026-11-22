@@ -70,11 +70,14 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(20);
 
-  const [formState, setFormState] = useState<{ mode: 'create' | 'edit'; user: AdminUser | null } | null>(
+  const [formState, setFormState] = useState<{
+    mode: 'create' | 'edit';
+    user: AdminUser | null;
+  } | null>(null);
+  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
+  const [resetResult, setResetResult] = useState<{ user: AdminUser; password: string } | null>(
     null,
   );
-  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
-  const [resetResult, setResetResult] = useState<{ user: AdminUser; password: string } | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [pendingUserId, setPendingUserId] = useState<number | null>(null);
 
@@ -103,11 +106,7 @@ export function UsersPage() {
   );
 
   const saveMutation = useMutation({
-    mutationFn: (input: {
-      mode: 'create' | 'edit';
-      userId?: number;
-      values: UserFormValues;
-    }) => {
+    mutationFn: (input: { mode: 'create' | 'edit'; userId?: number; values: UserFormValues }) => {
       if (input.mode === 'create') {
         const body: AdminUserCreateRequest = {
           login: (input.values.login ?? '').trim(),
@@ -212,10 +211,7 @@ export function UsersPage() {
       key: 'role',
       width: 150,
       render: (value: Role, record) => (
-        <Tag
-          color={value === 'ADMIN' ? 'gold' : 'blue'}
-          data-testid={`user-role-${record.id}`}
-        >
+        <Tag color={value === 'ADMIN' ? 'gold' : 'blue'} data-testid={`user-role-${record.id}`}>
           {ROLE_LABELS[value]}
         </Tag>
       ),
@@ -244,7 +240,9 @@ export function UsersPage() {
         return (
           <Space size={4} wrap data-testid={`user-building-${record.id}`}>
             <Typography.Text>{building?.name ?? `#${record.building_id}`}</Typography.Text>
-            {building && !building.is_active ? <Tag data-testid="user-building-inactive">неактивно</Tag> : null}
+            {building && !building.is_active ? (
+              <Tag data-testid="user-building-inactive">неактивно</Tag>
+            ) : null}
           </Space>
         );
       },
@@ -294,7 +292,11 @@ export function UsersPage() {
       width: 190,
       render: (_value, record) => (
         <Space size={4} wrap>
-          <Button size="small" onClick={() => openEdit(record)} data-testid={`user-edit-${record.id}`}>
+          <Button
+            size="small"
+            onClick={() => openEdit(record)}
+            data-testid={`user-edit-${record.id}`}
+          >
             Изменить
           </Button>
           <Tooltip title="Сгенерировать временный пароль и показать его">
@@ -329,7 +331,12 @@ export function UsersPage() {
             >
               Обновить
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} data-testid="user-create">
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={openCreate}
+              data-testid="user-create"
+            >
               Создать пользователя
             </Button>
           </Space>
@@ -497,8 +504,9 @@ export function UsersPage() {
       >
         <Flex vertical gap={12}>
           <Typography.Text>
-            Передайте пароль пользователю <Typography.Text strong>{resetResult?.user.login}</Typography.Text>.
-            При первом входе потребуется его смена (AUTH-4).
+            Передайте пароль пользователю{' '}
+            <Typography.Text strong>{resetResult?.user.login}</Typography.Text>. При первом входе
+            потребуется его смена (AUTH-4).
           </Typography.Text>
           <Space.Compact style={{ width: '100%' }}>
             <Input
