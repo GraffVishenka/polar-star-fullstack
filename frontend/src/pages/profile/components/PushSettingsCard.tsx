@@ -73,7 +73,7 @@ export function PushSettingsCard() {
         <Tag color={subscribed ? 'green' : 'default'} data-testid="push-state-tag">
           {subscribed ? 'подписано' : status === 'denied' ? 'запрещено' : 'не подписано'}
         </Tag>
-        <Typography.Text data-testid="push-status">
+        <Typography.Text data-testid="push-status" aria-live="polite">
           {statusText(status, supportReason)}
         </Typography.Text>
       </Typography.Paragraph>

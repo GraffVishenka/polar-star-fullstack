@@ -5,12 +5,31 @@
  * Чекбоксы нужны для массового перемещения (EQ-4): лимит 200 единиц проверяет
  * страница, чтобы пользователь получил подсказку до запроса.
  */
+import { useEffect, useState } from 'react';
 import { Button, Flex, Table, Typography } from 'antd';
+import type { CheckboxProps } from 'antd/es/checkbox';
 import type { ColumnsType } from 'antd/es/table';
 import type { Equipment } from '@/api/types';
 import { EmptyState } from '@/components/EmptyState';
 import { EQUIPMENT_PAGE_SIZE_OPTIONS } from '../equipmentSearchParams';
 import { EntityName } from './InactiveTag';
+
+/**
+ * Узкий экран (< 576 px, NFR-3): компактная пагинация без «Всего единиц»
+ * и выбора размера страницы, чтобы таблица не выезжала за 375 px.
+ * В jsdom/SSR `innerWidth` большой — тесты видят обычный вариант.
+ */
+function useNarrowScreen(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 576,
+  );
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < 576);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return narrow;
+}
 
 export interface EquipmentTableProps {
   items: Equipment[];
@@ -35,6 +54,8 @@ export function EquipmentTable({
   onOpen,
   onPageChange,
 }: EquipmentTableProps) {
+  const narrow = useNarrowScreen();
+
   const columns: ColumnsType<Equipment> = [
     {
       title: 'Наименование',
@@ -107,6 +128,11 @@ export function EquipmentTable({
           preserveSelectedRowKeys: true,
           onChange: (keys) => onSelectionChange(keys.map(Number)),
           columnWidth: 40,
+          // a11y: чекбокс строки должен иметь доступное имя (не только «Выбрать все»).
+          getCheckboxProps: (record) =>
+            ({
+              'aria-label': `Выбрать оборудование «${record.name}», ${record.registration_number}`,
+            }) as unknown as Partial<CheckboxProps>,
         }}
         locale={{
           emptyText: (
@@ -120,9 +146,11 @@ export function EquipmentTable({
           current: page,
           pageSize: size,
           total,
-          showSizeChanger: true,
+          // На 375 px — компактная пагинация «1 / 5» без длинных подписей.
+          simple: narrow,
+          showSizeChanger: !narrow,
           pageSizeOptions: EQUIPMENT_PAGE_SIZE_OPTIONS,
-          showTotal: (count) => `Всего единиц: ${count}`,
+          showTotal: narrow ? undefined : (count) => `Всего единиц: ${count}`,
           onChange: onPageChange,
         }}
       />

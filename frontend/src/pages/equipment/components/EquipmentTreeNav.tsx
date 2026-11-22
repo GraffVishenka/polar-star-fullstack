@@ -137,14 +137,17 @@ export function EquipmentTreeNav({
       {buildings.length === 0 && !loading ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Зданий пока нет" />
       ) : (
-        <Tree
-          blockNode
-          treeData={treeData}
-          expandedKeys={effectiveExpandedKeys}
-          selectedKeys={selectedKeys}
-          onExpand={(keys) => setExpandedKeys(keys)}
-          onSelect={(keys) => handleSelect(keys)}
-        />
+        // Навигационный landmark: скринридер видит отдельную область «Расположение».
+        <nav aria-label="Расположение оборудования">
+          <Tree
+            blockNode
+            treeData={treeData}
+            expandedKeys={effectiveExpandedKeys}
+            selectedKeys={selectedKeys}
+            onExpand={(keys) => setExpandedKeys(keys)}
+            onSelect={(keys) => handleSelect(keys)}
+          />
+        </nav>
       )}
     </Card>
   );
