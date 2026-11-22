@@ -67,6 +67,11 @@ export function AppLayout() {
 
   const userMenuItems = [
     {
+      key: 'stats',
+      icon: <BarChartOutlined />,
+      label: <Link to="/stats">Моя статистика</Link>,
+    },
+    {
       key: 'profile',
       icon: <UserOutlined />,
       label: <Link to="/profile">Профиль и статистика</Link>,

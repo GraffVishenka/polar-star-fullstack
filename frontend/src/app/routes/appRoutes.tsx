@@ -22,6 +22,8 @@ import { KbPage } from '@/pages/kb/KbPage';
 import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
 import { ProfilePage } from '@/pages/profile/ProfilePage';
 import { TicketsPage } from '@/pages/tickets/TicketsPage';
+import { StatsPage } from '@/pages/stats/StatsPage';
+import { AdminStatsPage } from '@/pages/stats/AdminStatsPage';
 
 export const adminRoutes: RouteObject = {
   path: 'admin',
@@ -46,7 +48,7 @@ export const adminRoutes: RouteObject = {
     },
     {
       path: 'stats',
-      element: <PlaceholderPage title="Статистика сотрудников" block="Ф10" owner="fe-3" />,
+      element: <AdminStatsPage />,
     },
     {
       path: 'trash',
@@ -70,7 +72,7 @@ export const appRoutes: RouteObject = {
     { path: 'equipment', element: <EquipmentPage /> },
     {
       path: 'stats',
-      element: <PlaceholderPage title="Моя статистика" block="Ф10" owner="fe-3" />,
+      element: <StatsPage />,
     },
     { path: 'profile', element: <ProfilePage /> },
     adminRoutes,
