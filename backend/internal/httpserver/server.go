@@ -129,6 +129,13 @@ type PushAPI interface {
 	Delete(w http.ResponseWriter, r *http.Request)
 }
 
+// StatsAPI — статистика (Б9, STATS-1): личная и сводная для ADMIN. Выгрузка
+// `.xlsx` остаётся за Б11.
+type StatsAPI interface {
+	Me(w http.ResponseWriter, r *http.Request)
+	Admin(w http.ResponseWriter, r *http.Request)
+}
+
 // Deps — зависимости HTTP-слоя. Передаются из main, чтобы сервер не создавал
 // подключения сам и оставался тестируемым.
 type Deps struct {
@@ -164,6 +171,10 @@ type Deps struct {
 
 	// PushHandler — подписки устройств и VAPID public key (Б8); nil — 501.
 	PushHandler PushAPI
+
+	// StatsHandler — статистика (Б9). nil — маршруты статистики остаются
+	// заглушками 501.
+	StatsHandler StatsAPI
 }
 
 // Server — собранный HTTP-сервер.

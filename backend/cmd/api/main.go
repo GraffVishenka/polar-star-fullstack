@@ -30,6 +30,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/notifications"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 	"github.com/graffvishenka/polar-star-service/backend/internal/settings"
+	"github.com/graffvishenka/polar-star-service/backend/internal/stats"
 	"github.com/graffvishenka/polar-star-service/backend/internal/tickets"
 	"github.com/graffvishenka/polar-star-service/backend/internal/users"
 )
@@ -217,6 +218,13 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	kbHandler := kb.NewHandler(kbService, logger)
 	filesService.SetKBMediaAuthorizer(kbService)
 
+	// Б9: статистика по завершённым заявкам (STATS-1..STATS-3). Часовой пояс и
+	// границы суток берутся из календаря приложения (CAL-2); Б7 заменит его
+	// реализацию на настройки из БД без изменений в домене статистики.
+	statsService := stats.NewService(stats.NewMySQLRepository(pool),
+		stats.Options{Calendar: calendar})
+	statsHandler := stats.NewHandler(statsService, logger)
+
 	httpServer := httpserver.New(httpserver.Deps{
 		Config:               cfg,
 		Logger:               logger,
@@ -237,6 +245,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		SettingsHandler:      settingsHandler,
 		DictionariesHandler:  dictionariesHandler,
 		PushHandler:          notificationsHandler,
+		StatsHandler:         statsHandler,
 	})
 
 	server := &http.Server{
