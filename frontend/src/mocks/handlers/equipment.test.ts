@@ -6,7 +6,6 @@
  * по каждой перемещённой единице.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { setAccessToken } from '@/api/client';
 import {
   bulkMoveEquipment,
   createEquipment,
@@ -14,10 +13,10 @@ import {
   fetchEquipmentMovements,
   moveEquipment,
 } from '@/api/equipment';
-import { issueAccessToken } from '@/mocks/auth';
+import { ADMIN_AUTH, USER_AUTH, authenticateAs } from '@/test/utils';
 
 describe('MSW: перемещение оборудования (EQ-3)', () => {
-  beforeEach(() => setAccessToken(issueAccessToken(2)));
+  beforeEach(() => authenticateAs(USER_AUTH.id));
 
   it('USER получает 422 BUILDING_INACTIVE при перемещении в неактивное здание', async () => {
     await expect(moveEquipment(1, { to_warehouse_id: 5 })).rejects.toMatchObject({
@@ -30,7 +29,7 @@ describe('MSW: перемещение оборудования (EQ-3)', () => {
   });
 
   it('ADMIN может переместить оборудование в неактивное здание и получает запись в журнале', async () => {
-    setAccessToken(issueAccessToken(1));
+    authenticateAs(ADMIN_AUTH.id);
 
     const updated = await moveEquipment(1, { to_warehouse_id: 5, comment: 'В архив' });
     expect(updated.building_id).toBe(4);
@@ -66,7 +65,7 @@ describe('MSW: перемещение оборудования (EQ-3)', () => {
 });
 
 describe('MSW: массовое перемещение (EQ-4)', () => {
-  beforeEach(() => setAccessToken(issueAccessToken(2)));
+  beforeEach(() => authenticateAs(USER_AUTH.id));
 
   it('создаёт запись журнала на каждую единицу и возвращает итог', async () => {
     const result = await bulkMoveEquipment({

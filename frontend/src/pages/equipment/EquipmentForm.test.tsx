@@ -9,30 +9,24 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { setAccessToken } from '@/api/client';
-import { issueAccessToken } from '@/mocks/auth';
-import { makeAuthUser, makeAuthValue, renderWithProviders } from '@/test/utils';
+import {
+  ADMIN_AUTH,
+  USER_AUTH,
+  authenticateAs,
+  makeAuthValue,
+  renderWithProviders,
+} from '@/test/utils';
 import { EquipmentPage } from './EquipmentPage';
 
 function renderPage(isAdmin = false) {
-  setAccessToken(issueAccessToken(isAdmin ? 1 : 2));
+  authenticateAs(isAdmin ? ADMIN_AUTH.id : USER_AUTH.id);
   return renderWithProviders(
     <Routes>
       <Route path="/equipment" element={<EquipmentPage />} />
     </Routes>,
     {
       route: '/equipment',
-      auth: makeAuthValue({
-        user: isAdmin
-          ? makeAuthUser({
-              id: 1,
-              login: 'admin',
-              role: 'ADMIN',
-              building_id: null,
-              building_name: null,
-            })
-          : makeAuthUser(),
-      }),
+      auth: makeAuthValue({ user: isAdmin ? ADMIN_AUTH : USER_AUTH }),
     },
   );
 }
@@ -65,7 +59,7 @@ async function fillLocationAndType(typeName: string, buildingName: string, wareh
 }
 
 describe('EquipmentPage: создание и правка', () => {
-  beforeEach(() => setAccessToken(issueAccessToken(2)));
+  beforeEach(() => authenticateAs(USER_AUTH.id));
 
   it('409 DUPLICATE_REGISTRATION_NUMBER подсвечивает поле регистрационного номера', async () => {
     renderPage();

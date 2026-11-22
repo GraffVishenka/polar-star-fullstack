@@ -5,9 +5,13 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { setAccessToken } from '@/api/client';
-import { issueAccessToken } from '@/mocks/auth';
-import { makeAuthUser, makeAuthValue, renderWithProviders } from '@/test/utils';
+import {
+  ADMIN_AUTH,
+  USER_AUTH,
+  authenticateAs,
+  makeAuthValue,
+  renderWithProviders,
+} from '@/test/utils';
 import { EquipmentPage } from './EquipmentPage';
 
 /** Показывает текущий query-строку — так проверяем, что фильтры живут в URL. */
@@ -17,7 +21,7 @@ function LocationProbe() {
 }
 
 function renderPage(route = '/equipment', isAdmin = false) {
-  setAccessToken(issueAccessToken(isAdmin ? 1 : 2));
+  authenticateAs(isAdmin ? ADMIN_AUTH.id : USER_AUTH.id);
   return renderWithProviders(
     <Routes>
       <Route
@@ -32,24 +36,14 @@ function renderPage(route = '/equipment', isAdmin = false) {
     </Routes>,
     {
       route,
-      auth: makeAuthValue({
-        user: isAdmin
-          ? makeAuthUser({
-              id: 1,
-              login: 'admin',
-              role: 'ADMIN',
-              building_id: null,
-              building_name: null,
-            })
-          : makeAuthUser(),
-      }),
+      auth: makeAuthValue({ user: isAdmin ? ADMIN_AUTH : USER_AUTH }),
     },
   );
 }
 
 describe('EquipmentPage: фильтры и навигация', () => {
   beforeEach(() => {
-    setAccessToken(issueAccessToken(2));
+    authenticateAs(USER_AUTH.id);
   });
 
   it('применяет фильтр по зданию из URL и показывает только его оборудование', async () => {
