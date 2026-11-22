@@ -87,3 +87,50 @@ jobs:
         run: pnpm test -- --run
       - name: build
         run: pnpm build
+
+  # Б13: проверка контракта. Основная проверка — офлайн-валидатор (js-yaml из
+  # зависимостей фронтенда), redocly запускается информационно.
+  contract:
+    name: OpenAPI contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.28.5 --activate
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: validate contract (offline)
+        run: node ../scripts/validate_openapi.mjs
+      - name: redocly lint (informational)
+        continue-on-error: true
+        run: npx --yes @redocly/cli@1 lint ../openapi/openapi.yaml
+
+  # Б13: сборка Docker-образов без публикации (проверяет Dockerfile'ы и контекст).
+  docker:
+    name: Docker images (build only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: false
+          tags: polar-star-service-api:ci
+      - name: build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: false
+          tags: polar-star-service-frontend:ci
