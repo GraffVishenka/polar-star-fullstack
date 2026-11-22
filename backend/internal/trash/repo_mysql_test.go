@@ -45,12 +45,13 @@ func uniqueName(prefix string) string {
 	return fmt.Sprintf("%s %d", prefix, time.Now().UnixNano())
 }
 
-// fixture создаёт здание и вид проблемы; пользователь для deleted_by берётся
-// первый существующий (после сидинга в CI он есть).
+// fixture создаёт здание, вид проблемы и пользователя для deleted_by. В CI
+// сидинг не выполняется, поэтому пользователя создаём сами (иначе deleted_by
+// остаётся NULL и проверка автора удаления не имеет смысла).
 type fixture struct {
 	buildingID    int64
 	problemTypeID int64
-	userID        sql.NullInt64
+	userID        int64
 }
 
 func newFixture(t *testing.T, pool *sql.DB) *fixture {
@@ -69,13 +70,25 @@ func newFixture(t *testing.T, pool *sql.DB) *fixture {
 	}
 	fx.problemTypeID, _ = res.LastInsertId()
 
-	if err := pool.QueryRowContext(ctx, `SELECT id FROM users ORDER BY id LIMIT 1`).Scan(&fx.userID.Int64); err == nil {
-		fx.userID.Valid = true
+	createdUser := false
+	if err := pool.QueryRowContext(ctx, `SELECT id FROM users ORDER BY id LIMIT 1`).Scan(&fx.userID); err != nil {
+		// Пользователя нет (CI не сидит данные) — создаём минимального.
+		res, insErr := pool.ExecContext(ctx, `INSERT INTO users
+			(login, full_name, role, password_hash, is_active, must_change_password)
+			VALUES (?, 'Тестовый сотрудник', 'USER', 'test-hash', 1, 0)`, uniqueName("trash-user"))
+		if insErr != nil {
+			t.Fatalf("insert user: %v", insErr)
+		}
+		fx.userID, _ = res.LastInsertId()
+		createdUser = true
 	}
 
 	t.Cleanup(func() {
 		cleanup := context.Background()
 		_, _ = pool.ExecContext(cleanup, `DELETE FROM tickets WHERE building_id = ?`, fx.buildingID)
+		if createdUser {
+			_, _ = pool.ExecContext(cleanup, `DELETE FROM users WHERE id = ?`, fx.userID)
+		}
 		_, _ = pool.ExecContext(cleanup, `DELETE FROM buildings WHERE id = ?`, fx.buildingID)
 		_, _ = pool.ExecContext(cleanup, `DELETE FROM problem_types WHERE id = ?`, fx.problemTypeID)
 	})
