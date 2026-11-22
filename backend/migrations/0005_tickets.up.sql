@@ -1,13 +1,13 @@
--- 0005_tickets: заявки, комментарии и связи с файлами (TICKET-1..TICKET-14).
+-- 0005_tickets: заявки и комментарии (TICKET-1..TICKET-14).
 --
 -- Здание обязательно (TICKET-2/TICKET-4); дедлайн — DATE, считается сервером по
 -- рабочему календарю (TICKET-3). Удаление — только в корзину (deleted_at).
 -- access_token_hash — SHA-256 токена анонимной заявки (TICKET-13), открытый
 -- токен в БД не хранится.
 --
--- ВНИМАНИЕ: comment_files.file_id не получает FK на files, потому что таблица
--- files создаётся в Б3 (миграция 0003) и на момент Б5 ещё не смержена.
--- FK нужно добавить отдельной миграцией после мержа Б3 (см. отчёт Б5).
+-- comment_files создаётся в Б3 (0003_files) вместе с таблицей files: там уже
+-- есть FK file_id → files ON DELETE CASCADE и уникальность пары. Б3 оставила
+-- FK comment_id → comments на Б5, поэтому здесь добавляем только его.
 
 CREATE TABLE tickets (
     id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -69,16 +69,10 @@ CREATE TABLE ticket_comments (
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci;
 
--- Вложения комментария: до 5 файлов (TICKET-14). FK на files добавляется после
--- мержа Б3; уникальность пары защищает от дублей при повторной привязке.
-CREATE TABLE comment_files (
-    comment_id BIGINT UNSIGNED NOT NULL,
-    file_id    BIGINT UNSIGNED NOT NULL,
-    PRIMARY KEY (comment_id, file_id),
-    KEY idx_comment_files_file (file_id),
-    CONSTRAINT fk_comment_files_comment
+-- Б3 создала comment_files без FK на комментарий (таблицы ещё не было).
+-- Теперь целостность связи «комментарий ↔ файл» обеспечивается каскадом:
+-- удаление комментария удаляет и связи (файлы удаляет автоочистка/Б3).
+ALTER TABLE comment_files
+    ADD CONSTRAINT fk_comment_files_comment
         FOREIGN KEY (comment_id) REFERENCES ticket_comments (id)
-            ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_0900_ai_ci;
+            ON DELETE CASCADE ON UPDATE CASCADE;
