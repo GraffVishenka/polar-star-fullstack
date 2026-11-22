@@ -162,6 +162,8 @@ func TestMySQLKbTreeLifecycle(t *testing.T) {
 	}
 
 	// Перемещение в корень в конец → parent_id NULL и sort_order = max+10.
+	// На верхнем уровне сейчас только сам root (sort_order=10), поэтому
+	// добавленный в конец узел получает 20 (а не 30: A и B — его дети).
 	if err := repo.Move(ctx, grand.ID, nil, nil, 0); err != nil {
 		t.Fatalf("Move(grand в корень): %v", err)
 	}
@@ -169,8 +171,8 @@ func TestMySQLKbTreeLifecycle(t *testing.T) {
 	if movedGrand.ParentID != nil {
 		t.Fatalf("parent_id = %v, want NULL", movedGrand.ParentID)
 	}
-	if movedGrand.SortOrder != 3*SortOrderStep {
-		t.Fatalf("sort_order = %d, want %d", movedGrand.SortOrder, 3*SortOrderStep)
+	if movedGrand.SortOrder != 2*SortOrderStep {
+		t.Fatalf("sort_order = %d, want %d", movedGrand.SortOrder, 2*SortOrderStep)
 	}
 
 	// Правка: повторный PATCH с теми же значениями не должен давать 404
