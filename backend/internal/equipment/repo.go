@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
@@ -30,6 +31,11 @@ type Repository interface {
 	// Move выполняет перемещение в транзакции с SELECT ... FOR UPDATE и
 	// возвращает обновлённую единицу и запись журнала (EQ-3).
 	Move(ctx context.Context, id int64, in MoveInput, actor Actor) (*Equipment, *Movement, error)
+	// BulkMove перемещает набор единиц в один склад одной транзакцией (EQ-4):
+	// блокировки по возрастанию id, журнал по каждой перемещённой единице.
+	// Единицы, уже находящиеся в целевом складе, пропускаются; если таких все —
+	// ErrSameWarehouse. Возвращает записи журнала и число пропущенных.
+	BulkMove(ctx context.Context, in BulkMoveInput, actor Actor) ([]*Movement, int, error)
 	// Movements — журнал единицы по убыванию moved_at (EQ-5).
 	Movements(ctx context.Context, equipmentID int64, page, size int) ([]Movement, int, error)
 }
@@ -342,8 +348,181 @@ func (r *MySQLRepository) Move(ctx context.Context, id int64, in MoveInput, acto
 	return equipment, movement, nil
 }
 
-// Movements — страница журнала перемещений единицы (EQ-5):
-// ORDER BY moved_at DESC, id DESC.
+// BulkMove — массовое перемещение единиц в один склад (EQ-4).
+//
+// Вся операция в одной транзакции:
+//  1. целевой склад проверяется по правилу EQ-3 (CheckWarehouseTarget):
+//     USER не может перемещать в деактивированное здание, ADMIN может;
+//  2. строки оборудования блокируются одним запросом с ORDER BY id — обход
+//     блокировок по возрастанию id исключает взаимоблокировки параллельных
+//     операций на пересекающихся наборах;
+//  3. любая отсутствующая/удалённая единица → ErrNotFound и откат всего набора;
+//  4. единицы, уже находящиеся в целевом складе, пропускаются (skipped); если
+//     пропускать нужно все — ErrSameWarehouse (409);
+//  5. для каждой перемещённой единицы — UPDATE склада и INSERT записи журнала.
+func (r *MySQLRepository) BulkMove(ctx context.Context, in BulkMoveInput, actor Actor) ([]*Movement, int, error) {
+	// Дубликаты и порядок нормализуются здесь же: сервис валидирует набор, но
+	// репозиторий должен быть безопасен и при прямом вызове.
+	ids := normalizeBulkIDs(in.EquipmentIDs)
+	if len(ids) == 0 || len(ids) > MaxBulkMoveItems {
+		return nil, 0, ErrInvalidSelection
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("equipment: транзакция массового перемещения: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	target, err := warehouseInfo(ctx, tx, in.ToWarehouseID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := CheckWarehouseTarget(*target, actor); err != nil {
+		return nil, 0, err
+	}
+
+	current, err := lockEquipmentWarehouses(ctx, tx, ids)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(current) != len(ids) {
+		return nil, 0, ErrNotFound
+	}
+
+	toMove := make([]int64, 0, len(ids))
+	skipped := 0
+	for _, id := range ids {
+		if current[id] == in.ToWarehouseID {
+			skipped++
+			continue
+		}
+		toMove = append(toMove, id)
+	}
+	if len(toMove) == 0 {
+		return nil, 0, ErrSameWarehouse
+	}
+
+	movementIDs := make([]int64, 0, len(toMove))
+	for _, id := range toMove {
+		fromWarehouseID := current[id]
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE equipment SET warehouse_id = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?`,
+			in.ToWarehouseID, id); err != nil {
+			return nil, 0, fmt.Errorf("equipment: массовая смена склада: %w", err)
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO equipment_movements
+				(equipment_id, from_warehouse_id, to_warehouse_id, moved_by_user_id, moved_at, comment)
+			VALUES (?, ?, ?, ?, UTC_TIMESTAMP(), ?)`,
+			id, fromWarehouseID, in.ToWarehouseID, actor.UserID, nullableString(in.Comment))
+		if err != nil {
+			return nil, 0, fmt.Errorf("equipment: журнал массового перемещения: %w", err)
+		}
+		movementID, err := res.LastInsertId()
+		if err != nil {
+			return nil, 0, fmt.Errorf("equipment: журнал массового перемещения: %w", err)
+		}
+		movementIDs = append(movementIDs, movementID)
+	}
+
+	movements, err := movementsByIDs(ctx, tx, movementIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, 0, fmt.Errorf("equipment: фиксация массового перемещения: %w", err)
+	}
+	return movements, skipped, nil
+}
+
+// normalizeBulkIDs убирает дубликаты и сортирует id по возрастанию: порядок
+// блокировок строк должен быть одинаковым у всех параллельных операций.
+func normalizeBulkIDs(ids []int64) []int64 {
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// lockEquipmentWarehouses блокирует строки оборудования по возрастанию id и
+// возвращает текущий склад каждой единицы.
+func lockEquipmentWarehouses(ctx context.Context, tx *sql.Tx, ids []int64) (map[int64]int64, error) {
+	query := `SELECT id, warehouse_id FROM equipment
+		WHERE id IN (` + placeholders(len(ids)) + `) AND deleted_at IS NULL
+		ORDER BY id FOR UPDATE`
+	rows, err := tx.QueryContext(ctx, query, int64Args(ids)...)
+	if err != nil {
+		return nil, fmt.Errorf("equipment: блокировка оборудования: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	current := make(map[int64]int64, len(ids))
+	for rows.Next() {
+		var id, warehouseID int64
+		if err := rows.Scan(&id, &warehouseID); err != nil {
+			return nil, fmt.Errorf("equipment: чтение оборудования: %w", err)
+		}
+		current[id] = warehouseID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("equipment: чтение оборудования: %w", err)
+	}
+	return current, nil
+}
+
+// movementsByIDs читает записи журнала внутри транзакции (для ответа EQ-4).
+func movementsByIDs(ctx context.Context, tx *sql.Tx, ids []int64) ([]*Movement, error) {
+	query := `SELECT ` + movementSelect + movementFrom +
+		` WHERE m.id IN (` + placeholders(len(ids)) + `) ORDER BY m.id`
+	rows, err := tx.QueryContext(ctx, query, int64Args(ids)...)
+	if err != nil {
+		return nil, fmt.Errorf("equipment: чтение журнала перемещений: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := make([]*Movement, 0, len(ids))
+	for rows.Next() {
+		movement, err := scanMovement(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, movement)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("equipment: чтение журнала перемещений: %w", err)
+	}
+	return items, nil
+}
+
+// placeholders возвращает «?, ?, ?» для IN (...).
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+// int64Args превращает идентификаторы в аргументы запроса.
+func int64Args(ids []int64) []any {
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return args
+}
+
+// Movements — страница журнала перемещений единицы (EQ-5):// ORDER BY moved_at DESC, id DESC.
 func (r *MySQLRepository) Movements(ctx context.Context, equipmentID int64, page, size int) ([]Movement, int, error) {
 	var total int
 	if err := r.db.QueryRowContext(ctx,

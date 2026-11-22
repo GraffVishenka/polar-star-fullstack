@@ -150,3 +150,33 @@ type MoveRequest struct {
 	ToWarehouseID int64   `json:"to_warehouse_id"`
 	Comment       *string `json:"comment"`
 }
+
+// BulkMoveRequest — тело POST /api/equipment/bulk-move (EQ-4).
+type BulkMoveRequest struct {
+	EquipmentIDs  []int64 `json:"equipment_ids"`
+	ToWarehouseID int64   `json:"to_warehouse_id"`
+	Comment       *string `json:"comment"`
+}
+
+// BulkMoveResponseDTO — ответ массового перемещения (контракт
+// EquipmentBulkMoveResponse). `skipped_count` — аддитивное поле: единицы,
+// которые уже находились в целевом складе и не создали запись журнала.
+type BulkMoveResponseDTO struct {
+	MovedCount   int           `json:"moved_count"`
+	SkippedCount int           `json:"skipped_count"`
+	Movements    []MovementDTO `json:"movements"`
+}
+
+// NewBulkMoveResponseDTO собирает ответ на массовое перемещение (movements
+// всегда массив).
+func NewBulkMoveResponseDTO(result *BulkMoveResult) BulkMoveResponseDTO {
+	movements := make([]MovementDTO, 0, len(result.Movements))
+	for _, movement := range result.Movements {
+		movements = append(movements, NewMovementDTO(movement))
+	}
+	return BulkMoveResponseDTO{
+		MovedCount:   result.MovedCount,
+		SkippedCount: result.SkippedCount,
+		Movements:    movements,
+	}
+}

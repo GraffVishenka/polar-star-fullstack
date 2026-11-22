@@ -17,4 +17,8 @@ var (
 	// ErrBuildingInactive — USER пытается разместить оборудование в
 	// деактивированном здании (EQ-3) → 422 BUILDING_INACTIVE.
 	ErrBuildingInactive = errors.New("equipment: здание склада деактивировано")
+	// ErrInvalidSelection — некорректный набор единиц для массового перемещения
+	// (пусто или больше 200, EQ-4) → 422 VALIDATION_ERROR. Сервис проверяет
+	// набор заранее, репозиторий — защитно, внутри транзакции.
+	ErrInvalidSelection = errors.New("equipment: некорректный набор единиц оборудования")
 )

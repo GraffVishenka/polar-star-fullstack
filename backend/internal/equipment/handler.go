@@ -196,6 +196,36 @@ func (h *Handler) Move(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, NewMoveResponseDTO(result))
 }
 
+// BulkMove — POST /api/equipment/bulk-move (EQ-4): массовое перемещение 1..200
+// единиц в один склад одной транзакцией, журнал по каждой перемещённой единице.
+// Единицы, уже находящиеся в целевом складе, пропускаются (`skipped_count`);
+// если таких все — 409 SAME_WAREHOUSE. Несуществующий id → 404 без частичных
+// изменений.
+func (h *Handler) BulkMove(w http.ResponseWriter, r *http.Request) {
+	actor, err := actorFrom(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	var req BulkMoveRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	in, details := ValidateBulkMove(req)
+	if len(details) > 0 {
+		h.fail(w, r, apierr.Validation("Проверьте поля массового перемещения", fieldDetails(details)))
+		return
+	}
+
+	result, err := h.svc.BulkMove(r.Context(), in, actor)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, NewBulkMoveResponseDTO(result))
+}
+
 // Movements — GET /api/equipment/{id}/movements: журнал по убыванию moved_at с
 // именами складов/зданий/пользователя (EQ-5).
 func (h *Handler) Movements(w http.ResponseWriter, r *http.Request) {

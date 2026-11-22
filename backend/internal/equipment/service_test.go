@@ -26,6 +26,7 @@ type fakeRepo struct {
 	createErr error
 	updateErr error
 	deleteErr error
+	bulkErr   error
 
 	deletedID int64
 	created   *Equipment
@@ -171,6 +172,65 @@ func (r *fakeRepo) Move(_ context.Context, id int64, in MoveInput, actor Actor) 
 func (r *fakeRepo) Movements(_ context.Context, equipmentID int64, _, _ int) ([]Movement, int, error) {
 	items := r.movements[equipmentID]
 	return items, len(items), nil
+}
+
+// BulkMove повторяет правила репозитория EQ-4: целевой склад, пропуск единиц,
+// уже находящихся в нём, 404 при отсутствующей единице и 409, если пропускать
+// нужно все.
+func (r *fakeRepo) BulkMove(_ context.Context, in BulkMoveInput, actor Actor) ([]*Movement, int, error) {
+	if r.bulkErr != nil {
+		return nil, 0, r.bulkErr
+	}
+	target, ok := r.warehouses[in.ToWarehouseID]
+	if !ok {
+		return nil, 0, ErrWarehouseNotFound
+	}
+	if err := CheckWarehouseTarget(target, actor); err != nil {
+		return nil, 0, err
+	}
+
+	movements := make([]*Movement, 0, len(in.EquipmentIDs))
+	skipped := 0
+	ids := normalizeBulkIDs(in.EquipmentIDs)
+	// Сначала проверяем весь набор — как транзакция в MySQL: отсутствующая
+	// единица откатывает операцию целиком, частичных перемещений не бывает.
+	for _, id := range ids {
+		if _, ok := r.items[id]; !ok {
+			return nil, 0, ErrNotFound
+		}
+	}
+	for _, id := range ids {
+		item := r.items[id]
+		if item.WarehouseID == target.ID {
+			skipped++
+			continue
+		}
+		from := r.warehouses[item.WarehouseID]
+		item.WarehouseID = target.ID
+		item.WarehouseName = target.Name
+		item.BuildingID = target.BuildingID
+		item.BuildingName = target.BuildingName
+
+		movement := Movement{
+			ID:                int64(len(movements) + 1),
+			EquipmentID:       id,
+			FromWarehouseID:   from.ID,
+			FromWarehouseName: from.Name,
+			FromBuildingName:  from.BuildingName,
+			ToWarehouseID:     target.ID,
+			ToWarehouseName:   target.Name,
+			ToBuildingName:    target.BuildingName,
+			MovedByUserID:     actor.UserID,
+			MovedAt:           time.Unix(0, 0).UTC(),
+			Comment:           in.Comment,
+		}
+		r.movements[id] = append(r.movements[id], movement)
+		movements = append(movements, &movement)
+	}
+	if len(movements) == 0 {
+		return nil, 0, ErrSameWarehouse
+	}
+	return movements, skipped, nil
 }
 
 // requireAPIError проверяет статус и код типизированной ошибки API.
@@ -399,6 +459,79 @@ func TestServiceMove(t *testing.T) {
 		_, err := NewService(fixture()).Move(context.Background(), 1, MoveInput{ToWarehouseID: 99}, userActor)
 		requireAPIError(t, err, 404, apierr.CodeNotFound)
 	})
+}
+
+// EQ-4: массовое перемещение — перемещённые, пропущенные (уже в целевом
+// складе), 404 при отсутствующей единице и 409, если пропускать нужно все.
+func TestServiceBulkMove(t *testing.T) {
+	repo := fixture()
+	repo.items[2] = &Equipment{ID: 2, Name: "Монитор", WarehouseID: 10, WarehouseName: "Склад A", BuildingID: 1, BuildingName: "Здание A"}
+	repo.items[3] = &Equipment{ID: 3, Name: "Клавиатура", WarehouseID: 20, WarehouseName: "Склад B", BuildingID: 2, BuildingName: "Здание B"}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	result, err := svc.BulkMove(ctx, BulkMoveInput{
+		EquipmentIDs:  []int64{3, 1, 2},
+		ToWarehouseID: 20,
+	}, userActor)
+	if err != nil {
+		t.Fatalf("BulkMove: %v", err)
+	}
+	if result.MovedCount != 2 || result.SkippedCount != 1 || len(result.Movements) != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	if repo.items[1].WarehouseID != 20 || repo.items[2].WarehouseID != 20 {
+		t.Fatalf("склад не обновлён: %+v / %+v", repo.items[1], repo.items[2])
+	}
+	// Для пропущенной единицы запись журнала не создаётся.
+	if len(repo.movements[3]) != 0 {
+		t.Fatalf("журнал пропущенной единицы = %+v", repo.movements[3])
+	}
+
+	// Все уже в целевом складе → 409 SAME_WAREHOUSE.
+	_, err = svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: []int64{1, 2, 3}, ToWarehouseID: 20}, userActor)
+	requireAPIError(t, err, 409, apierr.CodeSameWarehouse)
+
+	// Отсутствующая единица → 404, набор не перемещается.
+	repo.items[4] = &Equipment{ID: 4, Name: "Мышь", WarehouseID: 10}
+	_, err = svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: []int64{4, 999}, ToWarehouseID: 20}, userActor)
+	requireAPIError(t, err, 404, apierr.CodeNotFound)
+	if repo.items[4].WarehouseID != 10 {
+		t.Fatalf("частичное перемещение при 404: %+v", repo.items[4])
+	}
+
+	// USER в деактивированное здание → 422 BUILDING_INACTIVE, ADMIN — можно.
+	_, err = svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: []int64{4}, ToWarehouseID: 30}, userActor)
+	requireAPIError(t, err, 422, apierr.CodeBuildingInactive)
+	if _, err := svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: []int64{4}, ToWarehouseID: 30}, adminActor); err != nil {
+		t.Fatalf("ADMIN в неактивное здание: %v", err)
+	}
+
+	// Некорректный набор из репозитория (защитно) → 422 VALIDATION_ERROR.
+	repo.bulkErr = ErrInvalidSelection
+	_, err = svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: []int64{1}, ToWarehouseID: 10}, userActor)
+	requireAPIError(t, err, 422, apierr.CodeValidation)
+}
+
+// EQ-4: отсутствующий целевой склад → 404, пустой набор → 422.
+func TestServiceBulkMoveTargetAndSelection(t *testing.T) {
+	repo := fixture()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: []int64{1}, ToWarehouseID: 99}, userActor)
+	requireAPIError(t, err, 404, apierr.CodeNotFound)
+
+	_, err = svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: nil, ToWarehouseID: 20}, userActor)
+	requireAPIError(t, err, 422, apierr.CodeValidation)
+
+	// Больше 200 единиц за операцию → 422 (EQ-4).
+	tooMany := make([]int64, MaxBulkMoveItems+1)
+	for i := range tooMany {
+		tooMany[i] = int64(i + 1)
+	}
+	_, err = svc.BulkMove(ctx, BulkMoveInput{EquipmentIDs: tooMany, ToWarehouseID: 20}, userActor)
+	requireAPIError(t, err, 422, apierr.CodeValidation)
 }
 
 // EQ-5: журнал отдаётся только для существующей единицы.
