@@ -8,13 +8,7 @@
  * После перемещения данные обновляются инвалидацией запросов — без перезагрузки.
  */
 import { useEffect, useMemo, useState } from 'react';
-import {
-  ArrowRightOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  FileExcelOutlined,
-  SwapOutlined,
-} from '@ant-design/icons';
+import { ArrowRightOutlined, DeleteOutlined, EditOutlined, SwapOutlined } from '@ant-design/icons';
 import {
   Alert,
   Button,
@@ -24,12 +18,12 @@ import {
   Flex,
   Skeleton,
   Timeline,
-  Tooltip,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
 import type { Building, Equipment } from '@/api/types';
 import { EmptyState } from '@/components/EmptyState';
+import { InventoryExportButton } from '@/components/exports/InventoryExportButton';
 import {
   MOVEMENTS_MAX_SIZE,
   MOVEMENTS_PAGE_SIZE,
@@ -202,17 +196,8 @@ export function EquipmentDetailsDrawer({
                   >
                     Переместить
                   </Button>
-                  {/* EQ-8: ведомость помещения формируется в блоке Ф8 — здесь честная заглушка. */}
-                  <Tooltip title="Ведомость помещения появится в блоке Ф8 (Excel)">
-                    <Button
-                      size="small"
-                      icon={<FileExcelOutlined />}
-                      disabled
-                      data-testid="inventory-stub"
-                    >
-                      Ведомость помещения
-                    </Button>
-                  </Tooltip>
+                  {/* EQ-8: ведомость помещения выгружается из текущего склада оборудования. */}
+                  <InventoryExportButton warehouseId={item.warehouse_id} size="small" />
                 </Flex>
               }
             >

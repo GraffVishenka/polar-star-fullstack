@@ -3,64 +3,48 @@
  *
  * Пока `must_change_password=true`, остальные экраны закрыты guard'ом
  * `RequireAuth`: сервер отвечает 428 PASSWORD_CHANGE_REQUIRED.
+ *
+ * Форма собрана на antd `Form` с правилами (а не на react-hook-form):
+ * `Input.Password` + RHF `register` не передавал значения ни в jsdom, ни в браузере
+ * (ref/onChange конфликтовали), из-за чего валидация всегда видела пустые поля.
  */
 import { useState } from 'react';
 import { LockOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { z } from 'zod';
 import { changeOwnPassword } from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import { toast } from '@/app/toast';
 import { useAuth } from '@/auth/AuthContext';
 
-const passwordSchema = z
-  .object({
-    current_password: z.string().min(1, 'Введите текущий пароль'),
-    new_password: z.string().min(8, 'Новый пароль — не короче 8 символов'),
-    confirm_password: z.string().min(1, 'Повторите новый пароль'),
-  })
-  .refine((values) => values.new_password === values.confirm_password, {
-    message: 'Пароли не совпадают',
-    path: ['confirm_password'],
-  })
-  .refine((values) => values.current_password !== values.new_password, {
-    message: 'Новый пароль должен отличаться от текущего',
-    path: ['new_password'],
-  });
-
-type PasswordFormValues = z.infer<typeof passwordSchema>;
+interface PasswordFormValues {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}
 
 export function ChangePasswordPage() {
   const navigate = useNavigate();
   const { user, refreshUser } = useAuth();
+  const [form] = Form.useForm<PasswordFormValues>();
   const [formError, setFormError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<PasswordFormValues>({
-    resolver: zodResolver(passwordSchema),
-    defaultValues: { current_password: '', new_password: '', confirm_password: '' },
-  });
-
-  const onSubmit = async (values: PasswordFormValues) => {
+  const onFinish = async (values: PasswordFormValues) => {
     setFormError(null);
+    setSubmitting(true);
     try {
       await changeOwnPassword({
         current_password: values.current_password,
         new_password: values.new_password,
       });
-      setDone(true);
       toast.success('Пароль изменён');
       await refreshUser();
       navigate('/tickets', { replace: true });
     } catch (error) {
       setFormError(isApiError(error) ? error.userMessage : 'Не удалось изменить пароль');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -76,58 +60,92 @@ export function ChangePasswordPage() {
       </Typography.Paragraph>
 
       {formError ? (
-        <Alert type="error" showIcon message={formError} style={{ marginBottom: 16 }} />
-      ) : null}
-      {done ? (
-        <Alert type="success" showIcon message="Пароль обновлён" style={{ marginBottom: 16 }} />
+        <Alert
+          type="error"
+          showIcon
+          message={formError}
+          style={{ marginBottom: 16 }}
+          data-testid="change-password-error"
+        />
       ) : null}
 
-      <form onSubmit={handleSubmit(onSubmit)} noValidate>
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        onFinish={onFinish}
+        initialValues={{ current_password: '', new_password: '', confirm_password: '' }}
+      >
         <Form.Item
           label="Текущий пароль"
-          validateStatus={errors.current_password ? 'error' : undefined}
-          help={errors.current_password?.message}
+          name="current_password"
+          rules={[{ required: true, message: 'Введите текущий пароль' }]}
         >
           <Input.Password
-            {...register('current_password')}
             prefix={<LockOutlined />}
             autoComplete="current-password"
-            aria-label="Текущий пароль"
+            data-testid="change-password-current"
           />
         </Form.Item>
+
         <Form.Item
           label="Новый пароль"
-          validateStatus={errors.new_password ? 'error' : undefined}
-          help={errors.new_password?.message}
+          name="new_password"
+          rules={[
+            { required: true, message: 'Введите новый пароль' },
+            { min: 8, message: 'Новый пароль — не короче 8 символов' },
+            ({ getFieldValue }) => ({
+              validator: (_rule, value: string) =>
+                value && value === getFieldValue('current_password')
+                  ? Promise.reject(new Error('Новый пароль должен отличаться от текущего'))
+                  : Promise.resolve(),
+            }),
+          ]}
         >
           <Input.Password
-            {...register('new_password')}
             prefix={<LockOutlined />}
             autoComplete="new-password"
-            aria-label="Новый пароль"
+            data-testid="change-password-new"
           />
         </Form.Item>
+
         <Form.Item
           label="Повторите новый пароль"
-          validateStatus={errors.confirm_password ? 'error' : undefined}
-          help={errors.confirm_password?.message}
+          name="confirm_password"
+          dependencies={['new_password']}
+          rules={[
+            { required: true, message: 'Подтвердите новый пароль' },
+            ({ getFieldValue }) => ({
+              validator: (_rule, value: string) =>
+                !value || value === getFieldValue('new_password')
+                  ? Promise.resolve()
+                  : Promise.reject(new Error('Пароли не совпадают')),
+            }),
+          ]}
         >
           <Input.Password
-            {...register('confirm_password')}
             prefix={<LockOutlined />}
             autoComplete="new-password"
-            aria-label="Повторите новый пароль"
+            data-testid="change-password-confirm"
           />
         </Form.Item>
+
         <Flex gap={8} wrap>
-          <Button type="primary" htmlType="submit" loading={isSubmitting}>
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={submitting}
+            data-testid="change-password-submit"
+          >
             Сохранить пароль
           </Button>
           {!user?.must_change_password ? (
-            <Button onClick={() => navigate(-1)}>Отмена</Button>
+            <Button onClick={() => navigate(-1)} data-testid="change-password-cancel">
+              Отмена
+            </Button>
           ) : null}
         </Flex>
-      </form>
+      </Form>
     </Card>
   );
 }

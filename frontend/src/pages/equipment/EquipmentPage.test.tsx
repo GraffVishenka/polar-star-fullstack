@@ -1,7 +1,7 @@
 /**
  * `/equipment` — навигация, фильтры в URL и серверная пагинация (Ф4, EQ-7).
  */
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -127,5 +127,32 @@ describe('EquipmentPage: фильтры и навигация', () => {
     expect(await screen.findByText('Сервер HP ProLiant')).toBeInTheDocument();
     expect(screen.getAllByTestId('inactive-badge').length).toBeGreaterThan(0);
     expect(screen.getByTestId('inactive-building-alert')).toBeInTheDocument();
+  });
+
+  it('ведомость помещения доступна, когда склад выбран (EQ-8)', async () => {
+    renderPage('/equipment?warehouse=2');
+
+    // Название склада приходит вместе со справочником — дожидаемся его.
+    await waitFor(() =>
+      expect(screen.getByTestId('warehouse-toolbar')).toHaveTextContent('Склад ИТ'),
+    );
+    expect(screen.getByTestId('warehouse-toolbar')).toHaveTextContent('Центральный офис');
+
+    const exportButton = within(screen.getByTestId('inventory-export')).getByTestId(
+      'export-button',
+    );
+    expect(exportButton).toBeEnabled();
+  });
+
+  it('ведомость помещения disabled с подсказкой, пока склад не выбран', async () => {
+    renderPage();
+
+    const toolbar = await screen.findByTestId('warehouse-toolbar');
+    expect(toolbar).toHaveTextContent('Помещение не выбрано');
+
+    const exportButton = within(screen.getByTestId('inventory-export')).getByTestId(
+      'export-button',
+    );
+    expect(exportButton).toBeDisabled();
   });
 });

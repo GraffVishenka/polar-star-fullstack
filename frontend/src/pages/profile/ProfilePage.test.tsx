@@ -64,6 +64,14 @@ describe('ProfilePage: учётная запись', () => {
     expect(screen.queryByTestId('profile-building-missing')).not.toBeInTheDocument();
   });
 
+  it('содержит ссылку на личную статистику `/stats` (STATS-4)', async () => {
+    renderProfile();
+
+    const link = await screen.findByTestId('profile-stats-link');
+    expect(link.closest('a')).toHaveAttribute('href', '/stats');
+    expect(link).toHaveTextContent('Моя статистика');
+  });
+
   it('у ADMIN показывает «Все здания» без привязки к зданию', async () => {
     renderProfile({ user: ADMIN_AUTH });
 
