@@ -2,7 +2,7 @@
 # Multi-stage сборка API. Контекст сборки — корень репозитория (см. compose):
 # нужны backend/ и openapi/openapi.yaml (Swagger UI отдаёт контракт из /app).
 
-FROM golang:1.24-alpine AS build
+FROM golang:1.26-alpine AS build
 
 WORKDIR /src
 

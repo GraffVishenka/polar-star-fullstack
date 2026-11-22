@@ -22,6 +22,17 @@ const (
 	rateLimitWindow      = 10 * time.Minute
 )
 
+// UsersAPI — администрирование пользователей и подбор исполнителей (Б2).
+// Интерфейс объявлен в httpserver, чтобы пакет не зависел от internal/users
+// и оставался тестируемым без БД.
+type UsersAPI interface {
+	List(w http.ResponseWriter, r *http.Request)
+	Create(w http.ResponseWriter, r *http.Request)
+	Update(w http.ResponseWriter, r *http.Request)
+	ResetPassword(w http.ResponseWriter, r *http.Request)
+	Assignable(w http.ResponseWriter, r *http.Request)
+}
+
 // Deps — зависимости HTTP-слоя. Передаются из main, чтобы сервер не создавал
 // подключения сам и оставался тестируемым.
 type Deps struct {
@@ -34,6 +45,7 @@ type Deps struct {
 	AuthService   *auth.Service
 	AuthHandler   *auth.Handler
 	Authenticator *auth.Authenticator
+	UsersHandler  UsersAPI
 }
 
 // Server — собранный HTTP-сервер.

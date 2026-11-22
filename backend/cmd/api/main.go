@@ -23,6 +23,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/db"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
+	"github.com/graffvishenka/polar-star-service/backend/internal/users"
 )
 
 func main() {
@@ -132,6 +133,12 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	authHandler := auth.NewHandler(authService, logger, cfg.IsProduction())
 	authenticator := auth.NewAuthenticator(repository, tokenManager)
 
+	// Б2: пользователи, роли и здание пользователя. Отзыв сессий при
+	// блокировке/сбросе пароля использует тот же auth.Repository.
+	usersRepository := users.NewMySQLRepository(pool)
+	usersService := users.NewService(usersRepository, repository, users.NewMySQLTicketResolver(pool), logger)
+	usersHandler := users.NewHandler(usersService, logger)
+
 	httpServer := httpserver.New(httpserver.Deps{
 		Config:        cfg,
 		Logger:        logger,
@@ -142,6 +149,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		AuthService:   authService,
 		AuthHandler:   authHandler,
 		Authenticator: authenticator,
+		UsersHandler:  usersHandler,
 	})
 
 	server := &http.Server{

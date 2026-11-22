@@ -18,6 +18,12 @@ func UserFrom(ctx context.Context) (*User, bool) {
 	return user, ok
 }
 
+// WithUser кладёт пользователя в контекст. Используется requireAuth, а также
+// тестами HTTP-слоя и внутренними вызовами без реального запроса.
+func WithUser(ctx context.Context, user *User) context.Context {
+	return context.WithValue(ctx, userContextKey{}, user)
+}
+
 // Authenticator проверяет access-токены и права ролей.
 type Authenticator struct {
 	repo   Repository
