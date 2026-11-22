@@ -1,15 +1,18 @@
 /**
- * `/b/:buildingId` — публичный дашборд здания (заглушка Ф1, реализация — Ф5).
+ * `/b/:buildingId` — публичный дашборд здания (PUB-2, PUB-4, TICKET-5).
  *
- * Уже сейчас показывает реальные счётчики и статусы из публичного API:
- * три колонки без `done` (TICKET-5), никаких закрытых полей (description,
- * комментарии, файлы) здесь быть не может.
- * Режим `/b/all` — сводный обзор «Все здания» только для чтения (PUB-4).
+ * Три колонки (`new`, `in_progress`, `deferred`) с карточками только из
+ * разрешённых полей; `done` и внутренние данные наружу не отдаются. Режим
+ * `/b/all` — сводка по всем активным зданиям, только чтение: кнопка создания
+ * неактивна с подсказкой. Неактивное/несуществующее здание → 404.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { BankOutlined, EnvironmentOutlined, PlusOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Col, Flex, Row, Skeleton, Tooltip, Typography } from 'antd';
-import { Link, useParams } from 'react-router-dom';
+import { Alert, Button, Col, Flex, Row, Skeleton, Tooltip, Typography } from 'antd';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { fetchPublicTickets } from '@/api/public';
+import { queryKeys } from '@/app/queryClient';
 import {
   APP_NAME,
   PUBLIC_STATUS_ORDER,
@@ -17,13 +20,24 @@ import {
   TICKET_STATUS_LABELS,
 } from '@/app/config';
 import { BuildingBadge } from '@/components/BuildingBadge';
-import { EmptyState } from '@/components/EmptyState';
-import { StatusTag } from '@/components/StatusTag';
+import { PublicNotFound } from './components/PublicNotFound';
+import { PublicStatusColumn } from './components/PublicStatusColumn';
+import { PublicTicketCreateModal } from './components/PublicTicketCreateModal';
 import { useAnonBuilding } from '@/hooks/useAnonBuilding';
 
 export function BuildingDashboardPage() {
   const { buildingId } = useParams<{ buildingId: string }>();
-  const { buildings, isLoading, isError, error, refetch } = useAnonBuilding();
+  const navigate = useNavigate();
+  const {
+    buildings,
+    isLoading: buildingsLoading,
+    isError,
+    error,
+    refetch,
+    selectBuilding,
+  } = useAnonBuilding();
+
+  const [createOpen, setCreateOpen] = useState(false);
 
   const isAllBuildings = buildingId === 'all';
   const numericId = useMemo(() => {
@@ -36,21 +50,60 @@ export function BuildingDashboardPage() {
     [buildings, numericId],
   );
 
-  const totals = useMemo(() => {
-    const sum = { new: 0, in_progress: 0, deferred: 0 };
-    buildings.forEach((item) => {
-      sum.new += item.counts.new;
-      sum.in_progress += item.counts.in_progress;
-      sum.deferred += item.counts.deferred;
-    });
-    return sum;
-  }, [buildings]);
+  const ticketsQuery = useQuery({
+    queryKey: queryKeys.publicTickets(isAllBuildings ? null : numericId),
+    queryFn: () => fetchPublicTickets(isAllBuildings ? null : numericId),
+    enabled: isAllBuildings || numericId !== null,
+    staleTime: 15_000,
+    retry: false,
+  });
 
-  if (isLoading) {
+  const tickets = useMemo(() => ticketsQuery.data?.items ?? [], [ticketsQuery.data]);
+
+  const grouped = useMemo(() => {
+    const map: Record<string, typeof tickets> = { new: [], in_progress: [], deferred: [] };
+    tickets.forEach((ticket) => {
+      if (map[ticket.status]) map[ticket.status]!.push(ticket);
+    });
+    return map;
+  }, [tickets]);
+
+  /** Подписи/цвета статусов: серверные из карточек, иначе значения по умолчанию. */
+  const statusMeta = (status: (typeof PUBLIC_STATUS_ORDER)[number]) => {
+    const sample = tickets.find((ticket) => ticket.status === status);
+    return {
+      label: sample?.status_label ?? TICKET_STATUS_LABELS[status],
+      color: sample?.status_color ?? TICKET_STATUS_COLORS[status],
+    };
+  };
+
+  const isNotFound =
+    ticketsQuery.isError && (ticketsQuery.error as { status?: number } | null)?.status === 404;
+
+  if (!isAllBuildings && buildingId !== undefined && numericId === null) {
+    return <PublicNotFound title="Здание не найдено" />;
+  }
+
+  if (isNotFound) {
     return (
-      <Flex vertical gap={16}>
+      <PublicNotFound
+        title="Здание не найдено"
+        description="Возможно, здание деактивировано. Выберите другое здание из списка."
+      />
+    );
+  }
+
+  if (buildingsLoading || (ticketsQuery.isLoading && !ticketsQuery.isError)) {
+    return (
+      <Flex vertical gap={16} data-testid="public-dashboard-loading">
         <Skeleton active title paragraph={{ rows: 2 }} />
-        <Skeleton active paragraph={{ rows: 4 }} />
+        <Row gutter={[16, 16]}>
+          {[0, 1, 2].map((key) => (
+            <Col key={key} xs={24} md={8}>
+              <Skeleton active paragraph={{ rows: 4 }} />
+            </Col>
+          ))}
+        </Row>
       </Flex>
     );
   }
@@ -60,34 +113,45 @@ export function BuildingDashboardPage() {
       <Alert
         type="error"
         showIcon
-        message="Не удалось загрузить данные здания"
+        message="Не удалось загрузить список зданий"
         description={error?.message}
         action={
           <Button size="small" onClick={refetch}>
             Повторить
           </Button>
         }
+        data-testid="public-dashboard-error"
       />
     );
   }
 
   if (!isAllBuildings && !building) {
     return (
-      <EmptyState
+      <PublicNotFound
         title="Здание не найдено"
         description="Возможно, здание деактивировано. Выберите другое здание из списка."
-        action={{ label: 'К выбору здания', onClick: () => window.location.assign('/?change=1') }}
       />
     );
   }
 
-  const counts = isAllBuildings ? totals : building!.counts;
-  const countByStatus = {
-    new: counts.new,
-    in_progress: counts.in_progress,
-    deferred: counts.deferred,
-    done: 0,
-  };
+  if (ticketsQuery.isError) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        message="Не удалось загрузить заявки"
+        description="Проверьте соединение и попробуйте ещё раз."
+        action={
+          <Button size="small" onClick={() => void ticketsQuery.refetch()}>
+            Повторить
+          </Button>
+        }
+        data-testid="public-tickets-error"
+      />
+    );
+  }
+
+  const totalOpen = tickets.length;
 
   return (
     <Flex vertical gap={20} data-testid="building-dashboard-page">
@@ -95,7 +159,7 @@ export function BuildingDashboardPage() {
         <Flex vertical gap={6}>
           <Flex align="center" gap={8} wrap>
             <BankOutlined style={{ fontSize: 22, color: '#1677ff' }} />
-            <Typography.Title level={2} style={{ margin: 0, fontSize: 'clamp(20px, 5vw, 28px)' }}>
+            <Typography.Title level={1} style={{ margin: 0, fontSize: 'clamp(20px, 5vw, 28px)' }}>
               {isAllBuildings ? 'Все здания' : building!.name}
             </Typography.Title>
             {isAllBuildings ? (
@@ -112,23 +176,20 @@ export function BuildingDashboardPage() {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {isAllBuildings
               ? `Сводный обзор по ${buildings.length} активным зданиям · только чтение`
-              : `Публичный дашборд ${APP_NAME} · заявки обновляются автоматически`}
+              : `${APP_NAME} · открытых заявок: ${totalOpen}`}
           </Typography.Text>
         </Flex>
 
         <Flex gap={8} wrap>
           <Link to="/?change=1">
-            <Button>Сменить здание</Button>
+            <Button data-testid="change-building">Сменить здание</Button>
           </Link>
-          <Tooltip
-            title={
-              isAllBuildings ? 'Выберите здание для создания заявки' : 'Форма создания — в блоке Ф5'
-            }
-          >
+          <Tooltip title={isAllBuildings ? 'Выберите здание для создания заявки' : undefined}>
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              disabled
+              disabled={isAllBuildings}
+              onClick={() => setCreateOpen(true)}
               data-testid="create-ticket-button"
             >
               Создать заявку
@@ -140,29 +201,13 @@ export function BuildingDashboardPage() {
       <Row gutter={[16, 16]} data-testid="public-status-columns">
         {PUBLIC_STATUS_ORDER.map((status) => (
           <Col key={status} xs={24} md={8}>
-            <Card
-              size="small"
-              title={
-                <Flex align="center" justify="space-between" gap={8}>
-                  <StatusTag
-                    status={status}
-                    label={TICKET_STATUS_LABELS[status]}
-                    color={TICKET_STATUS_COLORS[status]}
-                  />
-                  <Typography.Text type="secondary">{countByStatus[status]}</Typography.Text>
-                </Flex>
-              }
-              data-testid={`public-column-${status}`}
-            >
-              {countByStatus[status] === 0 ? (
-                <EmptyState compact title="Заявок нет" description="Новые заявки появятся здесь." />
-              ) : (
-                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                  Карточки заявок и фильтры появятся в блоке Ф5. Счётчик отражает реальные данные из
-                  публичного API.
-                </Typography.Text>
-              )}
-            </Card>
+            <PublicStatusColumn
+              status={status}
+              label={statusMeta(status).label}
+              color={statusMeta(status).color}
+              tickets={grouped[status] ?? []}
+              showBuilding={isAllBuildings}
+            />
           </Col>
         ))}
       </Row>
@@ -171,8 +216,27 @@ export function BuildingDashboardPage() {
         type="info"
         showIcon
         message="Публичная сводка"
-        description="Публичный периметр показывает только безопасные поля: заявитель, кабинет, вид проблемы, статус, дедлайн и исполнителя. Описание, комментарии и вложения доступны только по ссылке-токену заявки."
+        description="Публично видны только заявитель, кабинет, вид проблемы, статус, дедлайн и исполнитель. Описание, комментарии и вложения доступны по персональной ссылке заявки."
       />
+
+      {!isAllBuildings && building ? (
+        <PublicTicketCreateModal
+          open={createOpen}
+          defaultBuildingId={building.id}
+          buildings={buildings.map(({ id, name }) => ({ id, name }))}
+          buildingsLoading={buildingsLoading}
+          onClose={() => setCreateOpen(false)}
+          onCreated={({ buildingId: createdBuildingId }) => {
+            // PUB-3: cookie обновляется на здание созданной заявки.
+            selectBuilding(createdBuildingId);
+          }}
+          onGoToDashboard={(createdBuildingId) => {
+            selectBuilding(createdBuildingId);
+            setCreateOpen(false);
+            navigate(`/b/${createdBuildingId}`);
+          }}
+        />
+      ) : null}
     </Flex>
   );
 }
