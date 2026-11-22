@@ -56,6 +56,7 @@ type EquipmentAPI interface {
 	Update(w http.ResponseWriter, r *http.Request)
 	Delete(w http.ResponseWriter, r *http.Request)
 	Move(w http.ResponseWriter, r *http.Request)
+	BulkMove(w http.ResponseWriter, r *http.Request)
 	Movements(w http.ResponseWriter, r *http.Request)
 }
 
