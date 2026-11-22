@@ -9,12 +9,7 @@ import { HttpResponse, http } from 'msw';
 import type { AdminUser } from '@/api/types';
 import { db } from '@/mocks/db';
 import { server } from '@/mocks/server';
-import {
-  authenticateAs,
-  makeAuthUser,
-  makeAuthValue,
-  renderWithProviders,
-} from '@/test/utils';
+import { authenticateAs, makeAuthUser, makeAuthValue, renderWithProviders } from '@/test/utils';
 import { UsersPage } from './UsersPage';
 
 const ADMIN = makeAuthUser({
@@ -120,7 +115,9 @@ describe('UsersPage', () => {
       .getByText('Старый корпус (неактивно)')
       .closest('.ant-select-item-option');
     expect(inactive).toHaveClass('ant-select-item-option-disabled');
-    const active = within(dropdown).getByText('Центральный офис').closest('.ant-select-item-option');
+    const active = within(dropdown)
+      .getByText('Центральный офис')
+      .closest('.ant-select-item-option');
     expect(active).not.toHaveClass('ant-select-item-option-disabled');
   });
 

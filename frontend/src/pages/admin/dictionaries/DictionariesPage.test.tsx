@@ -32,9 +32,7 @@ describe('DictionariesPage', () => {
   it('показывает справочник, счётчик использования и объясняет запрет удаления', async () => {
     renderPage();
 
-    await waitFor(() =>
-      expect(screen.getByTestId('dictionary-table-problem')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByTestId('dictionary-table-problem')).toBeInTheDocument());
     expect(await screen.findByText('Освещение')).toBeInTheDocument();
     expect(screen.getByTestId('dictionaries-info')).toHaveTextContent('Удаление запрещено');
 
@@ -59,8 +57,12 @@ describe('DictionariesPage', () => {
     expect(activeSwitch).toBeChecked();
     await user.click(activeSwitch);
 
-    await waitFor(() => expect(db.problemTypes.find((item) => item.id === 1)?.is_active).toBe(false));
-    expect(await screen.findByTestId('dictionary-inactive-problem-1')).toHaveTextContent('неактивен');
+    await waitFor(() =>
+      expect(db.problemTypes.find((item) => item.id === 1)?.is_active).toBe(false),
+    );
+    expect(await screen.findByTestId('dictionary-inactive-problem-1')).toHaveTextContent(
+      'неактивен',
+    );
     // Заявка исторически ссылается на деактивированный вид — значение осталось.
     expect(db.tickets.some((ticket) => ticket.problem_type_id === 1)).toBe(true);
   });

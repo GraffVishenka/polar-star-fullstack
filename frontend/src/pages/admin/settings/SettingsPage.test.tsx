@@ -62,9 +62,7 @@ describe('SettingsPage', () => {
     await clearAndType(days, '0');
     await user.click(screen.getByTestId('settings-save'));
 
-    expect(
-      await screen.findByText('Срок дедлайна — от 1 до 30 рабочих дней'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Срок дедлайна — от 1 до 30 рабочих дней')).toBeInTheDocument();
     expect(db.settings.deadline_days).toBe(2);
   });
 
@@ -76,9 +74,7 @@ describe('SettingsPage', () => {
     await clearAndType(screen.getByTestId('settings-reminder-time'), '25:00');
     await user.click(screen.getByTestId('settings-save'));
 
-    expect(
-      await screen.findByText('Время напоминания в формате HH:MM'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Время напоминания в формате HH:MM')).toBeInTheDocument();
     expect(db.settings.deadline_reminder_time).toBe('10:00');
   });
 
@@ -145,9 +141,7 @@ describe('SettingsPage', () => {
     await user.click(screen.getByTestId('holiday-add'));
 
     expect(await screen.findByText('31.12.2026')).toBeInTheDocument();
-    expect(
-      db.holidays.some((holiday) => holiday.date === '2026-12-31'),
-    ).toBe(true);
+    expect(db.holidays.some((holiday) => holiday.date === '2026-12-31')).toBe(true);
 
     const created = db.holidays.find((holiday) => holiday.date === '2026-12-31');
     await user.click(await screen.findByTestId(`holiday-delete-${created?.id}`));

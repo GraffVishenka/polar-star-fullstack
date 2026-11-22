@@ -26,6 +26,8 @@ export const queryClient = createQueryClient();
 export const queryKeys = {
   me: ['auth', 'me'] as const,
   publicBuildings: ['public', 'buildings'] as const,
+  /** Один ключ на публичные настройки: `app_name` и статусы (PUB-1, Б7). */
+  publicSettings: ['public', 'settings'] as const,
   publicTickets: (buildingId?: number | null) =>
     ['public', 'tickets', buildingId ?? 'all'] as const,
   publicTicket: (token: string) => ['public', 'ticket', token] as const,

@@ -23,7 +23,13 @@ import {
   Table,
   Typography,
 } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SaveOutlined,
+} from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import {
@@ -34,7 +40,13 @@ import {
   updateHoliday,
   updateSettings,
 } from '@/api/admin';
-import type { AppSettings, AppSettingsUpdateRequest, Holiday, TicketStatus, Weekday } from '@/api/types';
+import type {
+  AppSettings,
+  AppSettingsUpdateRequest,
+  Holiday,
+  TicketStatus,
+  Weekday,
+} from '@/api/types';
 import { TICKET_STATUS_COLORS, TICKET_STATUS_LABELS, TICKET_STATUS_ORDER } from '@/app/config';
 import { queryKeys } from '@/app/queryClient';
 import { toast } from '@/app/toast';
@@ -108,7 +120,11 @@ function CurrentTimeInZone({ timezone }: { timezone: string }) {
 
   if (!isKnownTimeZone(timezone)) {
     return (
-      <Typography.Text type="danger" style={{ fontSize: 12 }} data-testid="settings-timezone-invalid">
+      <Typography.Text
+        type="danger"
+        style={{ fontSize: 12 }}
+        data-testid="settings-timezone-invalid"
+      >
         Неизвестный часовой пояс — нужен IANA-идентификатор
       </Typography.Text>
     );
@@ -353,10 +369,22 @@ function HolidaysSection() {
               key: 'date',
               width: 130,
               render: (value: string) => (
-                <Typography.Text>{dayjs(value).isValid() ? dayjs(value).format('DD.MM.YYYY') : value}</Typography.Text>
+                <Typography.Text>
+                  {dayjs(value).isValid() ? dayjs(value).format('DD.MM.YYYY') : value}
+                </Typography.Text>
               ),
             },
-            { title: 'Название', dataIndex: 'name', key: 'name' },
+            {
+              title: 'Название',
+              dataIndex: 'name',
+              key: 'name',
+              // Контракт отдаёт только дату; подпись — аддитивное поле.
+              render: (value: string | undefined) => (
+                <Typography.Text type={value ? undefined : 'secondary'}>
+                  {value ?? 'Праздник'}
+                </Typography.Text>
+              ),
+            },
             {
               title: '',
               key: 'actions',
@@ -367,7 +395,7 @@ function HolidaysSection() {
                     size="small"
                     type="text"
                     icon={<EditOutlined />}
-                    aria-label={`Изменить праздник ${holiday.name}`}
+                    aria-label={`Изменить праздник ${holiday.name ?? holiday.date}`}
                     data-testid={`holiday-edit-${holiday.id}`}
                     onClick={() => setEditTarget(holiday)}
                   />
@@ -376,7 +404,7 @@ function HolidaysSection() {
                     danger
                     type="text"
                     icon={<DeleteOutlined />}
-                    aria-label={`Удалить праздник ${holiday.name}`}
+                    aria-label={`Удалить праздник ${holiday.name ?? holiday.date}`}
                     data-testid={`holiday-delete-${holiday.id}`}
                     onClick={() => setDeleteTarget(holiday)}
                   />
@@ -391,7 +419,7 @@ function HolidaysSection() {
           title="Удалить праздник?"
           description={
             deleteTarget
-              ? `«${deleteTarget.name}» (${dayjs(deleteTarget.date).format('DD.MM.YYYY')}) снова станет рабочим днём.`
+              ? `«${deleteTarget.name ?? 'Праздник'}» (${dayjs(deleteTarget.date).format('DD.MM.YYYY')}) снова станет рабочим днём.`
               : undefined
           }
           okText="Удалить"
@@ -631,7 +659,11 @@ export function SettingsPage() {
                 style={{ width: 200 }}
                 extra="HH:MM в выбранном поясе (CAL-3); сервер проверит формат"
               >
-                <Input placeholder="10:00" data-testid="settings-reminder-time" aria-label="Время напоминаний" />
+                <Input
+                  placeholder="10:00"
+                  data-testid="settings-reminder-time"
+                  aria-label="Время напоминаний"
+                />
               </Form.Item>
             </Flex>
           </Card>
