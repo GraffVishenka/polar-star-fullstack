@@ -683,15 +683,40 @@ export const adminHandlers = [
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
     const url = new URL(request.url);
-    const userId = Number(url.searchParams.get('user_id'));
-    const buildingId = Number(url.searchParams.get('building_id'));
-    return json(
-      computeStats(
-        Number.isSafeInteger(userId) && userId > 0 ? userId : null,
-        Number.isSafeInteger(buildingId) && buildingId > 0 ? buildingId : null,
-        url.searchParams.get('from') ?? undefined,
-        url.searchParams.get('to') ?? undefined,
-      ),
-    );
+    const rawUserId = Number(url.searchParams.get('user_id'));
+    const rawBuildingId = Number(url.searchParams.get('building_id'));
+    const userId = Number.isSafeInteger(rawUserId) && rawUserId > 0 ? rawUserId : null;
+    const buildingId =
+      Number.isSafeInteger(rawBuildingId) && rawBuildingId > 0 ? rawBuildingId : null;
+    const from = url.searchParams.get('from') ?? undefined;
+    const to = url.searchParams.get('to') ?? undefined;
+
+    // STATS-3: период по `completed_at`; обратный диапазон — 422.
+    if (from && to && from > to) {
+      return validation('Дата начала периода позже даты окончания', { from: 'должна быть <= to' });
+    }
+
+    const stats = computeStats(userId, buildingId, from, to);
+    if (userId) return json(stats);
+
+    // Аддитивное расширение (согласуется с lead/be): сводка по сотрудникам,
+    // чтобы `/admin/stats` мог показать таблицу без N отдельных запросов.
+    const employees = db.users
+      .filter((user) => user.role === 'USER' && user.is_active)
+      .filter((user) => !buildingId || user.building_id === buildingId)
+      .map((user) => {
+        const employeeStats = computeStats(user.id, buildingId, from, to);
+        return {
+          user_id: user.id,
+          user_name: user.full_name,
+          total_done: employeeStats.total_done,
+          done_in_period: employeeStats.done_in_period,
+          avg_resolution_hours: employeeStats.avg_resolution_hours,
+          median_resolution_hours: employeeStats.median_resolution_hours,
+          on_time_percent: employeeStats.on_time_percent,
+          overdue_count: employeeStats.overdue_count,
+        };
+      });
+    return json({ ...stats, employees });
   }),
 ];
