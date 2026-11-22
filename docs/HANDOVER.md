@@ -413,5 +413,28 @@ VAPID-ключи: `npx web-push generate-vapid-keys`. В production API не с�
 
 ---
 
+## 16. Фактическое состояние проверок (на 2026-11-23)
+
+- **CI GitHub Actions** (`main`, run 67): зелёные job'ы `Backend (Go + MySQL)`,
+  `Frontend (React + TS)`, `Frontend E2E (Playwright + MSW)`, `OpenAPI contract`,
+  `Docker images (build only)`. Ссылка:
+  <https://github.com/GraffVishenka/polar-star-fullstack/actions>.
+- **Backend**: миграции с нуля и повторно на MySQL 8.4; `go test -p 1 ./...`
+  (пакеты сериализованы, т.к. делят тестовую БД), `go vet`, `gofmt` — чисто.
+- **Frontend**: 359 unit-тестов (Vitest/RTL/MSW), `tsc`, ESLint, Prettier,
+  `pnpm build`; начальный бандл — 505 КБ gzip (лимит 600).
+- **E2E**: 21 сценарий Playwright (Chromium в CI, Edge локально) — 21/21 passed:
+  публичный периметр, заявки USER/ADMIN, БЗ с медиа и DnD, оборудование и
+  массовое перемещение, ведомость/Word/Excel, настройки, статистика, axe без
+  critical, адаптив 375 px.
+- **Docker**: образы API и frontend собираются в CI; `docker compose config`
+  проверяется целевой машиной (локально Docker недоступен).
+- **Не проверено автоматически**: реальная доставка Web Push (нужен HTTPS и
+  push-сервис), TLS/reverse proxy production, k6-нагрузка на 10k заявок,
+  восстановление бэкапа на чистой БД — это ручные шаги из §14 и
+  `scripts/acceptance.md`.
+
+---
+
 **Если что-то не сходится с кодом — верьте коду и `git log`**, а этот документ
 правьте отдельным коммитом `docs(handover): ...`.

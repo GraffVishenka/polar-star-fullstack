@@ -1,5 +1,7 @@
 # Заявки · База знаний · Оборудование
 
+[![CI](https://github.com/GraffVishenka/polar-star-fullstack/actions/workflows/ci.yml/badge.svg)](https://github.com/GraffVishenka/polar-star-fullstack/actions/workflows/ci.yml)
+
 Внутреннее веб-приложение: учёт заявок, база знаний и учёт оборудования с
 авторизацией (`USER`, `ADMIN`, `anonymous`), Admin-панелью, push-уведомлениями,
 статистикой и демо-данными для приёмки.
