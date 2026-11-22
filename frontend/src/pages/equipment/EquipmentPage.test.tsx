@@ -108,6 +108,19 @@ describe('EquipmentPage: фильтры и навигация', () => {
     expect(screen.getByText('Всего единиц: 9')).toBeInTheDocument();
   });
 
+  it('клик по номеру страницы в таблице обновляет URL и запрашивает новую страницу', async () => {
+    renderPage('/equipment?size=2');
+    expect(await screen.findByText('Ноутбук Dell Latitude')).toBeInTheDocument();
+
+    const pageTwo = document.querySelector<HTMLElement>('.ant-pagination-item[title="2"]');
+    expect(pageTwo).not.toBeNull();
+    await userEvent.click(pageTwo as HTMLElement);
+
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('page=2'));
+    expect(await screen.findByText('Принтер HP LaserJet')).toBeInTheDocument();
+    expect(screen.queryByText('Ноутбук Dell Latitude')).not.toBeInTheDocument();
+  });
+
   it('показывает бейдж «Неактивно» для оборудования деактивированного здания', async () => {
     renderPage('/equipment?building=4');
 
