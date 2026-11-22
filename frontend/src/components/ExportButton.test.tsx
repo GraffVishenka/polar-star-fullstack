@@ -46,15 +46,22 @@ describe('ExportButton', () => {
     const onSuccess = vi.fn();
 
     server.use(
-      http.get('*/api/tickets/1/export.docx', () =>
-        new HttpResponse(new Blob(['docx-bytes']), {
-          status: 200,
-          headers: { 'Content-Type': DOCX, 'Content-Disposition': 'attachment; filename="ticket_1.docx"' },
-        }),
+      http.get(
+        '*/api/tickets/1/export.docx',
+        () =>
+          new HttpResponse(new Blob(['docx-bytes']), {
+            status: 200,
+            headers: {
+              'Content-Type': DOCX,
+              'Content-Disposition': 'attachment; filename="ticket_1.docx"',
+            },
+          }),
       ),
     );
 
-    render(<ExportButton path="/tickets/1/export.docx" label="Скачать в Word" onSuccess={onSuccess} />);
+    render(
+      <ExportButton path="/tickets/1/export.docx" label="Скачать в Word" onSuccess={onSuccess} />,
+    );
     await userEvent.click(screen.getByTestId('export-button'));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('ticket_1.docx'));
@@ -76,11 +83,7 @@ describe('ExportButton', () => {
     );
 
     render(
-      <ExportButton
-        path="/warehouses/1/inventory.xlsx"
-        label="Ведомость"
-        onError={onError}
-      />,
+      <ExportButton path="/warehouses/1/inventory.xlsx" label="Ведомость" onError={onError} />,
     );
     await userEvent.click(screen.getByTestId('export-button'));
 

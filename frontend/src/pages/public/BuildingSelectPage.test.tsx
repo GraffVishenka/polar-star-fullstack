@@ -60,8 +60,6 @@ describe('BuildingSelectPage', () => {
     await userEvent.click(card);
 
     expect(await screen.findByText('dashboard page')).toBeInTheDocument();
-    await waitFor(() =>
-      expect(document.cookie).toContain(`${ANON_BUILDING_COOKIE}=3`),
-    );
+    await waitFor(() => expect(document.cookie).toContain(`${ANON_BUILDING_COOKIE}=3`));
   });
 });
