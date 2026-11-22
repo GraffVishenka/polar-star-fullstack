@@ -1,0 +1,5 @@
+# Настройки pnpm 11 (ключи из package.json больше не читаются).
+# esbuild и msw требуют postinstall для подготовки бинарника/воркера.
+onlyBuiltDependencies:
+  - esbuild
+  - msw
