@@ -50,7 +50,20 @@ func (s *Server) routes() http.Handler {
 		api.Get("/public/tickets/{token}", s.notImplemented)
 		api.Post("/public/tickets/{token}/comments", s.notImplemented)
 		api.Get("/public/tickets/{token}/export.docx", s.notImplemented)
-		api.Get("/public/files/{id}", s.notImplemented)
+
+		// Файлы анонимной заявки (Б3, TICKET-13/TICKET-14).
+		// Чтение — по access_token заявки; загрузка вложения анонимом — тот же
+		// лимит, что у публичных заявок (AUTH-3: 5 запросов / 10 минут на IP).
+		if s.deps.FilesHandler != nil {
+			api.Get("/public/files/{id}", s.deps.FilesHandler.PublicGet)
+			api.Head("/public/files/{id}", s.deps.FilesHandler.PublicGet)
+			api.With(middleware.RateLimit(s.publicFilesLimiter, middleware.ClientIPKey)).
+				Post("/public/files", s.deps.FilesHandler.PublicUpload)
+		} else {
+			api.Get("/public/files/{id}", s.notImplemented)
+			api.Post("/public/files", s.notImplemented)
+		}
+
 		api.Get("/public/kb/tree", s.notImplemented)
 		api.Get("/public/kb/nodes/{id}", s.notImplemented)
 
@@ -95,9 +108,16 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 	r.Get("/tickets/{id}/comments", s.notImplemented)
 	r.Post("/tickets/{id}/comments", s.notImplemented)
 
-	// Файлы (Б3).
-	r.Post("/files", s.notImplemented)
-	r.Get("/files/{id}", s.notImplemented)
+	// Файлы (Б3): загрузка и выдача под аутентификацией; HEAD нужен для
+	// корректной работы плееров и http.ServeContent.
+	if s.deps.FilesHandler != nil {
+		r.Post("/files", s.deps.FilesHandler.Upload)
+		r.Get("/files/{id}", s.deps.FilesHandler.Get)
+		r.Head("/files/{id}", s.deps.FilesHandler.Get)
+	} else {
+		r.Post("/files", s.notImplemented)
+		r.Get("/files/{id}", s.notImplemented)
+	}
 
 	// База знаний (Б6).
 	r.Get("/kb/tree", s.notImplemented)

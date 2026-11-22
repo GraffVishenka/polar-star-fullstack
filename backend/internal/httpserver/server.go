@@ -11,6 +11,7 @@ import (
 
 	"github.com/graffvishenka/polar-star-service/backend/internal/auth"
 	"github.com/graffvishenka/polar-star-service/backend/internal/config"
+	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform/ratelimit"
 )
@@ -34,6 +35,9 @@ type Deps struct {
 	AuthService   *auth.Service
 	AuthHandler   *auth.Handler
 	Authenticator *auth.Authenticator
+	// FilesHandler — маршруты файлов и медиа (Б3). nil в тестах Б1: тогда
+	// маршруты остаются заглушками 501.
+	FilesHandler *files.Handler
 }
 
 // Server — собранный HTTP-сервер.
@@ -43,6 +47,9 @@ type Server struct {
 	startedAt              time.Time
 	publicTicketsLimiter   *ratelimit.Limiter
 	publicBuildingsLimiter *ratelimit.Limiter
+	// publicFilesLimiter — загрузка вложений анонимом (Б3): лимит публичных
+	// заявок 5 запросов / 10 минут на IP (AUTH-3).
+	publicFilesLimiter *ratelimit.Limiter
 }
 
 // New собирает роутер и middleware.
@@ -58,6 +65,7 @@ func New(deps Deps) *Server {
 		startedAt:              deps.Clock.Now(),
 		publicTicketsLimiter:   ratelimit.New(publicTicketsLimit, rateLimitWindow, deps.Clock),
 		publicBuildingsLimiter: ratelimit.New(publicBuildingsLimit, rateLimitWindow, deps.Clock),
+		publicFilesLimiter:     ratelimit.New(publicTicketsLimit, rateLimitWindow, deps.Clock),
 	}
 	s.handler = s.routes()
 	return s
