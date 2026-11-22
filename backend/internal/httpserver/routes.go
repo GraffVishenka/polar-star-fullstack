@@ -164,7 +164,12 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 
 	// Пользователи и статистика (Б2, Б9).
 	r.Get("/users/assignable", s.usersAssignable)
-	r.Get("/stats/me", s.notImplemented)
+	// Личная статистика — USER/ADMIN (STATS-1); выгрузка `.xlsx` — Б11.
+	if sh := s.deps.StatsHandler; sh != nil {
+		r.Get("/stats/me", sh.Me)
+	} else {
+		r.Get("/stats/me", s.notImplemented)
+	}
 	r.Get("/stats/export.xlsx", s.notImplemented)
 
 	// Справочники: чтение активных — всем авторизованным (Б7). include_inactive
@@ -305,7 +310,11 @@ func (s *Server) adminRoutes(r chi.Router) {
 	}
 
 	// Статистика и корзина — ADMIN (STATS-1, TRASH-*).
-	r.Get("/admin/stats", s.notImplemented)
+	if sh := s.deps.StatsHandler; sh != nil {
+		r.Get("/admin/stats", sh.Admin)
+	} else {
+		r.Get("/admin/stats", s.notImplemented)
+	}
 	r.Get("/admin/trash", s.notImplemented)
 	r.Post("/admin/trash/{type}/{id}/restore", s.notImplemented)
 	r.Delete("/admin/trash/{type}/{id}", s.notImplemented)

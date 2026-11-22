@@ -12,28 +12,36 @@ import (
 
 // Options — зависимости сервиса статистики.
 type Options struct {
-	// Calendar — источник часового пояса приложения (CAL-2); Б7 заменит
-	// реализацию на настройки из БД, сервис менять не потребуется.
+	// Calendar — источник часового пояса приложения (CAL-2). В API это
+	// settings.CalendarProvider: часовой пояс может измениться в настройках
+	// (CAL-5), поэтому Location запрашивается на каждый запрос, а не
+	// кешируется при старте.
 	Calendar platform.Calendar
 }
 
 // Service — бизнес-логика статистики (STATS-1, STATS-2, STATS-3).
 type Service struct {
-	repo Repository
-	loc  *time.Location
+	repo     Repository
+	calendar platform.Calendar
 }
 
 // NewService создаёт сервис статистики.
 func NewService(repo Repository, opts Options) *Service {
-	loc := time.UTC
-	if opts.Calendar != nil && opts.Calendar.Location() != nil {
-		loc = opts.Calendar.Location()
+	calendar := opts.Calendar
+	if calendar == nil {
+		calendar = platform.NewDefaultCalendar(time.UTC, nil, nil, platform.RealClock{})
 	}
-	return &Service{repo: repo, loc: loc}
+	return &Service{repo: repo, calendar: calendar}
 }
 
-// Location — часовой пояс приложения (нужен handler'у для разбора дат).
-func (s *Service) Location() *time.Location { return s.loc }
+// Location возвращает актуальный часовой пояс приложения. Каждый вызов читает
+// текущий снапшот настроек (Б7), поэтому смена timezone применяется сразу.
+func (s *Service) Location() *time.Location {
+	if loc := s.calendar.Location(); loc != nil {
+		return loc
+	}
+	return time.UTC
+}
 
 // MyStats — личная статистика текущего пользователя (STATS-1: USER/ADMIN).
 // STATS-2: личная статистика не ограничена зданием, поэтому фильтр building_id
@@ -126,7 +134,7 @@ func (s *Service) ExportRows(ctx context.Context, actor *auth.User, query Query)
 		return nil, err
 	}
 
-	tickets, err := s.repo.CompletedTickets(ctx, s.buildFilter(query, targetID))
+	tickets, err := s.repo.CompletedTickets(ctx, s.buildFilter(query, targetID, s.Location()))
 	if err != nil {
 		return nil, apierr.Internal(err)
 	}
@@ -142,7 +150,7 @@ func (s *Service) ExportRows(ctx context.Context, actor *auth.User, query Query)
 			Cabinet:       ticket.Cabinet,
 			ApplicantName: ticket.ApplicantName,
 		}
-		if onTime, hasDeadline := OnTimeStatus(ticket, s.loc); hasDeadline {
+		if onTime, hasDeadline := OnTimeStatus(ticket, s.Location()); hasDeadline {
 			value := onTime
 			row.OnTime = &value
 		}
@@ -154,7 +162,8 @@ func (s *Service) ExportRows(ctx context.Context, actor *auth.User, query Query)
 // buildStats собирает метрики одного сотрудника: total_done за всё время и
 // метрики периода (STATS-1, STATS-2).
 func (s *Service) buildStats(ctx context.Context, employee Employee, query Query, period Period) (*Stats, error) {
-	filter := s.buildFilter(query, employee.ID)
+	loc := s.Location()
+	filter := s.buildFilter(query, employee.ID, loc)
 	totalDone, err := s.repo.CountCompleted(ctx, filter.WithoutPeriod())
 	if err != nil {
 		return nil, apierr.Internal(err)
@@ -167,30 +176,33 @@ func (s *Service) buildStats(ctx context.Context, employee Employee, query Query
 		Employee:  employee,
 		Period:    period,
 		TotalDone: totalDone,
-		Metrics:   ComputeMetrics(tickets, s.loc),
+		Metrics:   ComputeMetrics(tickets, loc),
 	}, nil
 }
 
 // buildFilter переводит Query в фильтр репозитория. Границы периода задаются в
 // поясе приложения и передаются в БД в UTC: `from` — начало суток, `to` —
 // начало следующих суток (период включается включительно, STATS-2).
-func (s *Service) buildFilter(query Query, executorID int64) Filter {
+func (s *Service) buildFilter(query Query, executorID int64, loc *time.Location) Filter {
 	filter := Filter{ExecutorID: &executorID, BuildingID: query.BuildingID}
 	if query.From != nil {
-		from := s.startOfDayUTC(*query.From)
+		from := startOfDayUTC(*query.From, loc)
 		filter.From = &from
 	}
 	if query.To != nil {
-		to := s.startOfDayUTC(*query.To).AddDate(0, 0, 1)
+		to := startOfDayUTC(*query.To, loc).AddDate(0, 0, 1)
 		filter.ToExclusive = &to
 	}
 	return filter
 }
 
 // startOfDayUTC возвращает полночь даты в поясе приложения, выраженную в UTC.
-func (s *Service) startOfDayUTC(date time.Time) time.Time {
+func startOfDayUTC(date time.Time, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
 	year, month, day := date.Date()
-	return time.Date(year, month, day, 0, 0, 0, 0, s.loc).UTC()
+	return time.Date(year, month, day, 0, 0, 0, 0, loc).UTC()
 }
 
 // validatePeriod проверяет порядок границ периода (422 VALIDATION_ERROR).
