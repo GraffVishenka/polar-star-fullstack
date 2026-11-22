@@ -230,7 +230,7 @@ func (r *MySQLRepository) Move(ctx context.Context, nodeID int64, parentID *int6
 
 // SoftDelete отправляет узел и всё поддерево в корзину (KB-3). Возвращает число
 // удалённых потомков без самого узла.
-func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64, at time.Time) (int, error) {
+func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64, at time.Time, deletedBy int64) (int, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("kb: транзакция удаления: %w", err)
@@ -279,13 +279,14 @@ func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64, at time.Time
 		return 0, ErrNotFound
 	}
 
-	args := make([]any, 0, len(subtreeIDs)+1)
+	args := make([]any, 0, len(subtreeIDs)+2)
 	args = append(args, at)
+	args = append(args, nullableID(deletedBy))
 	for _, memberID := range subtreeIDs {
 		args = append(args, memberID)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE kb_nodes
-		SET deleted_at = ?, updated_at = UTC_TIMESTAMP()
+		SET deleted_at = ?, deleted_by = ?, updated_at = UTC_TIMESTAMP()
 		WHERE id IN (`+placeholders(len(subtreeIDs))+`)`, args...); err != nil {
 		return 0, fmt.Errorf("kb: удаление поддерева: %w", err)
 	}

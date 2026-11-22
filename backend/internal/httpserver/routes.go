@@ -315,9 +315,15 @@ func (s *Server) adminRoutes(r chi.Router) {
 	} else {
 		r.Get("/admin/stats", s.notImplemented)
 	}
-	r.Get("/admin/trash", s.notImplemented)
-	r.Post("/admin/trash/{type}/{id}/restore", s.notImplemented)
-	r.Delete("/admin/trash/{type}/{id}", s.notImplemented)
+	if th := s.deps.TrashHandler; th != nil {
+		r.Get("/admin/trash", th.List)
+		r.Post("/admin/trash/{type}/{id}/restore", th.Restore)
+		r.Delete("/admin/trash/{type}/{id}", th.Purge)
+	} else {
+		r.Get("/admin/trash", s.notImplemented)
+		r.Post("/admin/trash/{type}/{id}/restore", s.notImplemented)
+		r.Delete("/admin/trash/{type}/{id}", s.notImplemented)
+	}
 }
 
 // Обёртки Б2: пока UsersHandler не подключён (например, в тестах Б1),

@@ -196,12 +196,16 @@ func (h *Handler) Move(w http.ResponseWriter, r *http.Request) {
 // Delete — DELETE /api/kb/nodes/{id} (ADMIN): мягкое удаление поддерева в
 // корзину с числом потомков (KB-3).
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
 	id, err := pathID(r, "Статья не найдена")
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	descendants, err := h.svc.Delete(r.Context(), id)
+	descendants, err := h.svc.Delete(r.Context(), actor, id)
 	if err != nil {
 		h.fail(w, r, err)
 		return

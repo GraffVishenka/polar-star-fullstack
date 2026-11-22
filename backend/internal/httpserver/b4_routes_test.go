@@ -87,7 +87,9 @@ func (stubEquipmentRepo) Update(context.Context, int64, equipment.UpdateInput) (
 	return nil, equipment.ErrNotFound
 }
 
-func (stubEquipmentRepo) SoftDelete(context.Context, int64) error { return equipment.ErrNotFound }
+func (stubEquipmentRepo) SoftDelete(context.Context, int64, int64) error {
+	return equipment.ErrNotFound
+}
 
 func (stubEquipmentRepo) RegistrationNumberTaken(context.Context, string, int64) (bool, error) {
 	return false, nil

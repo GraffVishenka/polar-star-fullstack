@@ -167,8 +167,9 @@ type Repository interface {
 	// одной транзакции (KB-6). beforeNodeID=nil — в конец списка.
 	Move(ctx context.Context, nodeID int64, parentID *int64, beforeNodeID *int64, actorID int64) error
 	// SoftDelete отправляет узел и всё поддерево в корзину, возвращает число
-	// удалённых потомков (без самого узла).
-	SoftDelete(ctx context.Context, id int64, at time.Time) (descendants int, err error)
+	// удалённых потомков (без самого узла) и фиксирует автора удаления (KB-3,
+	// TRASH-1).
+	SoftDelete(ctx context.Context, id int64, at time.Time, deletedBy int64) (descendants int, err error)
 	// SetVisibility переключает видимость корневого раздела (KB-7).
 	SetVisibility(ctx context.Context, id int64, hidden bool, actorID int64) (*Node, error)
 	// Ancestors возвращает путь от корня до узла включительно.

@@ -29,6 +29,7 @@ type fakeRepo struct {
 	nextTicketID  int64
 	nextCommentID int64
 	now           time.Time
+	deletedBy     int64
 }
 
 func newFakeRepo(now time.Time) *fakeRepo {
@@ -135,7 +136,8 @@ func (r *fakeRepo) Update(_ context.Context, id int64, params UpdateParams) (*Ti
 	return ticket, nil
 }
 
-func (r *fakeRepo) SoftDelete(_ context.Context, id int64) error {
+func (r *fakeRepo) SoftDelete(_ context.Context, id int64, deletedBy int64) error {
+	r.deletedBy = deletedBy
 	ticket, ok := r.tickets[id]
 	if !ok || ticket.DeletedAt != nil {
 		return ErrNotFound

@@ -280,8 +280,10 @@ func (s *Service) Move(ctx context.Context, actor *auth.User, id int64, in MoveI
 
 // Delete отправляет узел с поддеревом в корзину (KB-3, только ADMIN — проверка
 // маршрута) и возвращает число удалённых потомков.
-func (s *Service) Delete(ctx context.Context, id int64) (int, error) {
-	descendants, err := s.repo.SoftDelete(ctx, id, s.clock.Now().UTC())
+// Delete отправляет узел с поддеревом в корзину (KB-3, TRASH-1) и фиксирует
+// автора удаления для списка корзины. Восстановление — блок Б10.
+func (s *Service) Delete(ctx context.Context, actor *auth.User, id int64) (int, error) {
+	descendants, err := s.repo.SoftDelete(ctx, id, s.clock.Now().UTC(), actorID(actor))
 	if err != nil {
 		return 0, mapRepoError(err)
 	}

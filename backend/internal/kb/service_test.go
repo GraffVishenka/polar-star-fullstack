@@ -118,7 +118,7 @@ func TestService_CreateParentErrors(t *testing.T) {
 	}
 
 	deleted := repo.seed(Node{Title: "Удалённый"})
-	if _, err := svc.Delete(context.Background(), deleted.ID); err != nil {
+	if _, err := svc.Delete(context.Background(), user(1), deleted.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	_, _, err = svc.Create(context.Background(), user(1), CreateInput{Title: "X", ParentID: ptr(deleted.ID)})
@@ -235,7 +235,7 @@ func TestService_UpdateParentErrors(t *testing.T) {
 	ctx := context.Background()
 	node := mustCreate(t, svc, CreateInput{Title: "Статья"})
 	deleted := repo.seed(Node{Title: "Удалённый"})
-	if _, err := svc.Delete(ctx, deleted.ID); err != nil {
+	if _, err := svc.Delete(ctx, user(1), deleted.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -376,7 +376,7 @@ func TestService_Delete(t *testing.T) {
 	grand := mustCreate(t, svc, CreateInput{Title: "Внук", ParentID: ptr(child.ID)})
 	_ = grand
 
-	descendants, err := svc.Delete(ctx, root.ID)
+	descendants, err := svc.Delete(ctx, user(1), root.ID)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestService_Delete(t *testing.T) {
 		}
 	}
 	// Повторное удаление — 404 (узел уже в корзине).
-	if _, err := svc.Delete(ctx, root.ID); apiError(t, err).Status != http.StatusNotFound {
+	if _, err := svc.Delete(ctx, user(1), root.ID); apiError(t, err).Status != http.StatusNotFound {
 		t.Fatalf("повторное удаление: %v", err)
 	}
 }
@@ -462,7 +462,7 @@ func TestService_TreeAndNodeVisibility(t *testing.T) {
 	}
 
 	// Удалённый узел не виден никому.
-	if _, err := svc.Delete(ctx, publicChild.ID); err != nil {
+	if _, err := svc.Delete(ctx, user(1), publicChild.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if _, _, err := svc.Node(ctx, publicChild.ID, false); apiError(t, err).Status != http.StatusNotFound {
@@ -509,7 +509,7 @@ func TestService_PublicKBFile(t *testing.T) {
 		t.Fatal("медиа скрытого раздела не должно быть доступно")
 	}
 	// После удаления узла — тоже.
-	if _, err := svc.Delete(ctx, hidden.ID); err != nil {
+	if _, err := svc.Delete(ctx, user(1), hidden.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if ok, _ := svc.PublicKBFile(ctx, 12); ok {

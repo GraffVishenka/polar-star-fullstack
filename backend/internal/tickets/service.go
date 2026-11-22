@@ -443,7 +443,7 @@ func (s *Service) Delete(ctx context.Context, actor *auth.User, id int64) error 
 	if actor == nil || actor.Role != auth.RoleAdmin {
 		return apierr.Forbidden("Удалять заявки может только администратор")
 	}
-	if err := s.repo.SoftDelete(ctx, id); err != nil {
+	if err := s.repo.SoftDelete(ctx, id, actor.ID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return apierr.NotFound("Заявка не найдена")
 		}

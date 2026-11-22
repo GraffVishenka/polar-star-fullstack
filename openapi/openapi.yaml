@@ -1907,8 +1907,10 @@ paths:
       tags: [Trash]
       operationId: listTrash
       summary: Корзина
-      description: |-
-        TRASH-1: дата удаления, кто удалил, краткое описание; фильтр по типу.
+      description: |
+        TRASH-1: дата удаления, кто удалил и краткое описание; фильтр по типу обязателен,
+        сортировка — по дате удаления (сначала свежие), пагинация серверная.
+        `type` вне `ticket|kb|equipment` → `422 VALIDATION_ERROR`.
       security: [{bearerAuth: []}]
       parameters:
         - name: type
@@ -1935,6 +1937,14 @@ paths:
         TRASH-2: заявка возвращается со статусом и зданием (деактивированное здание —
         с предупреждением); узел БЗ — только при живом родителе; оборудование — при живом
         складе; конфликт регистрационного номера → `409`.
+
+        `warnings` не блокируют восстановление: деактивированное здание заявки или склада
+        оборудования, а также невосстановленные потомки узла БЗ (TRASH-5) приходят
+        текстовыми предупреждениями. `409 CONFLICT` возвращается, если родитель узла БЗ
+        удалён, склад оборудования удалён или регистрационный номер занят
+        (`details.reason` = `parent_deleted` / `warehouse_deleted` / `duplicate_registration_number`);
+        удалённое оборудование с занятым номером восстанавливается после освобождения
+        номера, заявка — как есть.
       security: [{bearerAuth: []}]
       parameters:
         - $ref: '#/components/parameters/TypePath'
@@ -1956,8 +1966,11 @@ paths:
       tags: [Trash]
       operationId: purgeTrashItem
       summary: Окончательное удаление
-      description: |-
-        TRASH-3: физическое удаление с комментариями и файлами, необратимо.
+      description: |
+        TRASH-3: физическое удаление, необратимо (подтверждение — в UI). Заявка удаляется
+        вместе с комментариями, связями вложений и файлами (файлы стираются и с диска);
+        узел БЗ — вместе со всем удалённым поддеревом (от листьев к корню); оборудование —
+        вместе с журналом перемещений. Если элемент уже не в корзине → `404`.
       security: [{bearerAuth: []}]
       parameters:
         - $ref: '#/components/parameters/TypePath'
@@ -3517,23 +3530,35 @@ components:
         is_active: {type: boolean}
     TrashItem:
       type: object
+      description: |
+        Элемент корзины (TRASH-1). `title` — краткое описание по типу: заявка
+        (`#id · заявитель · кабинет · здание`), узел БЗ (заголовок и родитель),
+        оборудование (название, регистрационный номер, склад). `building_id` и
+        `building_name` заполнены для заявок и оборудования, у узлов БЗ — `null`.
+        `deleted_by_user_id`/`deleted_by_name` — автор удаления; `null`, если он
+        неизвестен (например, аккаунт удалён).
       required: [type, id, title, deleted_at]
       properties:
         type: {$ref: '#/components/schemas/TrashType'}
         id: {type: integer, format: int64}
-        title: {type: string, description: Краткое описание элемента.}
+        title:
+          type: string
+          description: Краткое описание элемента (формат зависит от типа).
         deleted_at: {type: string, format: date-time}
         deleted_by_user_id:
           type: integer
           format: int64
           nullable: true
+          description: Кто удалил (users.id); заполняется при удалении в корзину.
         deleted_by_name:
           type: string
           nullable: true
+          description: ФИО автора удаления.
         building_id:
           type: integer
           format: int64
           nullable: true
+          description: Здание заявки/оборудования; у узлов БЗ — null.
         building_name:
           type: string
           nullable: true

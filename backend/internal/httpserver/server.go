@@ -123,6 +123,13 @@ type DictionariesAPI interface {
 	PublicProblemTypes(w http.ResponseWriter, r *http.Request)
 }
 
+// TrashAPI — корзина и восстановление (Б10, TRASH-1..TRASH-3).
+type TrashAPI interface {
+	List(w http.ResponseWriter, r *http.Request)
+	Restore(w http.ResponseWriter, r *http.Request)
+	Purge(w http.ResponseWriter, r *http.Request)
+}
+
 // PushAPI — push-подписки и VAPID public key (Б8).
 type PushAPI interface {
 	PublicKey(w http.ResponseWriter, r *http.Request)
@@ -188,6 +195,9 @@ type Deps struct {
 
 	// DocumentsHandler — Word/Excel-выгрузки Б11; nil — 501 на их маршрутах.
 	DocumentsHandler DocumentsAPI
+
+	// Б10: корзина (только ADMIN). nil — маршруты остаются заглушками 501.
+	TrashHandler TrashAPI
 }
 
 // Server — собранный HTTP-сервер.
