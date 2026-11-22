@@ -35,6 +35,7 @@ import {
   notFound,
   paginate,
   pathId,
+  queryId,
   readBody,
   validation,
 } from '../http';
@@ -183,27 +184,27 @@ export const equipmentHandlers = [
   }),
 
   // --- Оборудование -------------------------------------------------------
+  // EQ-7: фильтры по зданию/складу/типу + поиск, серверная пагинация.
   http.get(`${API}/equipment`, ({ request }) => {
     const auth = guard(request);
     if (!auth.ok) return auth.response;
     const url = new URL(request.url);
-    const numeric = (key: string) => {
-      const value = Number(url.searchParams.get(key));
-      return Number.isSafeInteger(value) && value > 0 ? value : undefined;
-    };
+    const page = queryId(request, 'page') ?? 1;
+    const size = Math.min(queryId(request, 'size') ?? 20, 100);
     const { items, total } = filterEquipment({
-      page: numeric('page'),
-      size: numeric('size'),
-      building_id: numeric('building_id'),
-      warehouse_id: numeric('warehouse_id'),
-      equipment_type_id: numeric('equipment_type_id'),
-      search: url.searchParams.get('search') ?? undefined,
+      page,
+      size,
+      building_id: queryId(request, 'building_id') ?? undefined,
+      warehouse_id: queryId(request, 'warehouse_id') ?? undefined,
+      equipment_type_id: queryId(request, 'equipment_type_id') ?? undefined,
+      search: (url.searchParams.get('search') ?? '').trim() || undefined,
     });
     return json({
-      items: items.map(toEquipment),
+      // Стабильный порядок: серверная пагинация не должна «прыгать» между страницами.
+      items: [...items].sort((a, b) => a.id - b.id).map(toEquipment),
       total,
-      page: numeric('page') ?? 1,
-      size: numeric('size') ?? 20,
+      page,
+      size,
     });
   }),
 
@@ -266,12 +267,27 @@ export const equipmentHandlers = [
     if (!item) return notFound('Оборудование не найдено');
 
     const body = await readBody<EquipmentUpdateRequest>(request);
-    if (body.name !== undefined) item.name = String(body.name).trim();
-    if (body.equipment_type_id !== undefined)
+    if (body.name !== undefined) {
+      const name = String(body.name).trim();
+      if (!name || name.length > 200) return validation('Наименование — 1–200 символов');
+      item.name = name;
+    }
+    if (body.equipment_type_id !== undefined) {
+      if (!db.equipmentTypes.some((type) => type.id === Number(body.equipment_type_id))) {
+        return validation('Выберите тип оборудования');
+      }
       item.equipment_type_id = Number(body.equipment_type_id);
-    if (body.serial_number !== undefined) item.serial_number = String(body.serial_number).trim();
+    }
+    if (body.serial_number !== undefined) {
+      const serial = String(body.serial_number).trim();
+      if (!serial || serial.length > 100) return validation('Серийный номер — 1–100 символов');
+      item.serial_number = serial;
+    }
     if (body.registration_number !== undefined) {
       const registration = String(body.registration_number).trim();
+      if (!registration || registration.length > 100) {
+        return validation('Регистрационный номер — 1–100 символов');
+      }
       if (duplicateRegistrationNumber(registration, item.id)) {
         return conflict(
           'DUPLICATE_REGISTRATION_NUMBER',
@@ -287,7 +303,10 @@ export const equipmentHandlers = [
     return json(toEquipment(item));
   }),
 
-  // EQ-3: перемещение в транзакции с записью журнала.
+  // EQ-3: перемещение в «транзакции» с записью журнала.
+  //  - тот же склад → 409 SAME_WAREHOUSE;
+  //  - неактивное здание (источник или цель) → 422 BUILDING_INACTIVE для USER,
+  //    ADMIN перемещает внутри/в неактивное здание (история сохраняется, EQ-6).
   http.post(`${API}/equipment/:id/move`, async ({ request, params }) => {
     const auth = guard(request);
     if (!auth.ok) return auth.response;
@@ -300,12 +319,18 @@ export const equipmentHandlers = [
     const target = findWarehouse(Number(body.to_warehouse_id));
     if (!target) return validation('Помещение назначения не найдено');
     if (target.id === item.warehouse_id) {
-      return conflict('SAME_WAREHOUSE', 'Оборудование уже находится в этом помещении');
+      return fail(409, 'SAME_WAREHOUSE', 'Оборудование уже находится в этом помещении', {
+        warehouse_id: target.id,
+      });
     }
 
     const targetBuilding = findBuilding(target.building_id);
-    if (!targetBuilding?.is_active && auth.user.role !== 'ADMIN') {
-      return fail(422, 'BUILDING_INACTIVE', 'Нельзя переместить оборудование в неактивное здание');
+    const fromWarehouse = findWarehouse(item.warehouse_id);
+    const fromBuilding = findBuilding(fromWarehouse?.building_id ?? null);
+    if (auth.user.role !== 'ADMIN' && (!targetBuilding?.is_active || !fromBuilding?.is_active)) {
+      return fail(422, 'BUILDING_INACTIVE', 'Нельзя переместить оборудование в неактивное здание', {
+        to_building_id: target.building_id,
+      });
     }
 
     const from = item.warehouse_id;
@@ -323,14 +348,21 @@ export const equipmentHandlers = [
   }),
 
   // EQ-4: массовое перемещение — одна «транзакция», журнал по каждой единице.
+  // Несуществующий id → 404 с полным откатом, >200 ids → 422.
   http.post(`${API}/equipment/bulk-move`, async ({ request }) => {
     const auth = guard(request);
     if (!auth.ok) return auth.response;
     const body = await readBody<EquipmentBulkMoveRequest>(request);
-    const ids = Array.isArray(body.equipment_ids) ? body.equipment_ids.map(Number) : [];
+    const ids = Array.isArray(body.equipment_ids)
+      ? [
+          ...new Set(
+            body.equipment_ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0),
+          ),
+        ]
+      : [];
 
     if (ids.length < 1 || ids.length > 200) {
-      return validation('Выберите от 1 до 200 единиц оборудования');
+      return validation('Выберите от 1 до 200 единиц оборудования', { count: ids.length });
     }
     const target = findWarehouse(Number(body.to_warehouse_id));
     if (!target) return validation('Помещение назначения не найдено');
@@ -338,28 +370,37 @@ export const equipmentHandlers = [
     const items = ids.map((id) =>
       db.equipment.find((equipment) => equipment.id === id && equipment.deleted_at === null),
     );
-    if (items.some((item) => !item)) {
-      return notFound('Одна из единиц оборудования не найдена — перемещение отменено');
+    const missing = ids.filter((_id, index) => !items[index]);
+    if (missing.length) {
+      // Откат: ни одна единица не изменяется, если хотя бы одной нет (EQ-4).
+      return fail(404, 'NOT_FOUND', 'Одна из единиц оборудования не найдена', {
+        missing_ids: missing,
+      });
     }
 
     const targetBuilding = findBuilding(target.building_id);
-    if (!targetBuilding?.is_active && auth.user.role !== 'ADMIN') {
-      return fail(422, 'BUILDING_INACTIVE', 'Нельзя переместить оборудование в неактивное здание');
+    const sourceInactive = items.some((item) => {
+      const warehouse = findWarehouse(item!.warehouse_id);
+      return findBuilding(warehouse?.building_id ?? null)?.is_active === false;
+    });
+    if (auth.user.role !== 'ADMIN' && (!targetBuilding?.is_active || sourceInactive)) {
+      return fail(422, 'BUILDING_INACTIVE', 'Нельзя переместить оборудование в неактивное здание', {
+        to_building_id: target.building_id,
+      });
     }
 
-    const same = items.filter((item) => item!.warehouse_id === target.id);
-    if (same.length === ids.length) {
+    const toMove = items.filter((item) => item!.warehouse_id !== target.id);
+    if (toMove.length === 0) {
       return conflict('SAME_WAREHOUSE', 'Всё выбранное оборудование уже в этом помещении');
     }
 
     const movedAt = new Date().toISOString();
-    items.forEach((item) => {
-      if (!item || item.warehouse_id === target.id) return;
-      const from = item.warehouse_id;
-      item.warehouse_id = target.id;
+    toMove.forEach((item) => {
+      const from = item!.warehouse_id;
+      item!.warehouse_id = target.id;
       db.movements.push({
         id: nextId(db.movements),
-        equipment_id: item.id,
+        equipment_id: item!.id,
         from_warehouse_id: from,
         to_warehouse_id: target.id,
         moved_by_user_id: auth.user.id,
@@ -369,10 +410,10 @@ export const equipmentHandlers = [
       });
     });
 
-    const movedCount = items.filter((item) => item!.warehouse_id === target.id).length;
-    return json(equipmentBulkMoveResult(movedCount, target.id));
+    return json(equipmentBulkMoveResult(toMove.length, target.id));
   }),
 
+  // EQ-5: журнал неизменяем и отдаётся с именами складов/зданий/пользователя.
   http.get(`${API}/equipment/:id/movements`, ({ request, params }) => {
     const auth = guard(request);
     if (!auth.ok) return auth.response;
@@ -380,14 +421,11 @@ export const equipmentHandlers = [
     const item = db.equipment.find((equipment) => equipment.id === id);
     if (!item) return notFound('Оборудование не найдено');
 
-    const url = new URL(request.url);
-    const page = Number(url.searchParams.get('page') ?? '1') || 1;
-    const size = Number(url.searchParams.get('size') ?? '20') || 20;
     const movements = db.movements
       .filter((movement) => movement.equipment_id === id)
       .sort((a, b) => b.moved_at.localeCompare(a.moved_at))
       .map(toMovement);
-    return json(paginate(movements, page, size));
+    return json(paginate(movements, queryId(request, 'page') ?? 1, queryId(request, 'size') ?? 20));
   }),
 
   // EQ-8: ведомость помещения Excel (в моках — плейсхолдер с нужными заголовками).
