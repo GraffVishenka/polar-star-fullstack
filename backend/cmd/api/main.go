@@ -25,6 +25,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/equipment"
 	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
+	"github.com/graffvishenka/polar-star-service/backend/internal/kb"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 	"github.com/graffvishenka/polar-star-service/backend/internal/tickets"
 	"github.com/graffvishenka/polar-star-service/backend/internal/users"
@@ -174,6 +175,14 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	filesService.SetTicketAuthorizer(tickets.NewTicketTokenAuthorizer(ticketsRepository))
 	filesService.SetFileAccessAuthorizer(tickets.NewFileAccessAuthorizer(ticketsRepository, ticketsRepository))
 
+	// Б6: база знаний — дерево, санитизация HTML, медиа статей и публичная
+	// выдача медиа (KB-1..KB-8). kbService также реализует
+	// files.KBMediaAuthorizer для `GET /api/public/files/{id}` без токена.
+	kbService := kb.NewService(kb.NewMySQLRepository(pool),
+		kb.NewFilesMediaValidator(filesService), kb.Options{Clock: clock, Logger: logger})
+	kbHandler := kb.NewHandler(kbService, logger)
+	filesService.SetKBMediaAuthorizer(kbService)
+
 	httpServer := httpserver.New(httpserver.Deps{
 		Config:               cfg,
 		Logger:               logger,
@@ -190,6 +199,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		EquipmentHandler:     equipmentHandler,
 		TicketsHandler:       ticketsHandler,
 		PublicTicketsHandler: ticketsHandler,
+		KBHandler:            kbHandler,
 	})
 
 	server := &http.Server{

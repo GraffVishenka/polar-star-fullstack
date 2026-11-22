@@ -201,6 +201,24 @@ func (a *fakeAuthorizer) FileBelongsToTicketToken(_ context.Context, fileID int6
 	return a.accessible[fileID], nil
 }
 
+// fakeKBMedia — заглушка files.KBMediaAuthorizer (реализация — kb.Service в Б6).
+// Отвечает «файл вставлен в публичную статью БЗ».
+type fakeKBMedia struct {
+	public map[int64]bool
+	err    error
+}
+
+func newFakeKBMedia() *fakeKBMedia {
+	return &fakeKBMedia{public: map[int64]bool{}}
+}
+
+func (a *fakeKBMedia) PublicKBFile(_ context.Context, fileID int64) (bool, error) {
+	if a.err != nil {
+		return false, a.err
+	}
+	return a.public[fileID], nil
+}
+
 // fixedID возвращает детерминированный генератор идентификаторов.
 func fixedID(id string) IDGenerator {
 	return func() (string, error) { return id, nil }

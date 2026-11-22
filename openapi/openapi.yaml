@@ -351,17 +351,27 @@ paths:
     get:
       tags: [Public]
       operationId: getPublicFile
-      summary: Файл заявки по токену доступа
+      summary: Публичный файл — вложение заявки по токену или медиа статьи БЗ
       description: |
-        TICKET-13 / Б3: доступ только к файлу своей заявки по токену. Поддерживается
-        Range (`206 Partial Content`) для видео. Заголовки `Content-Disposition`,
-        `Accept-Ranges`, `nosniff`.
+        Два режима доступа (Б3 + Б6):
+
+        - **с `?token=`** — TICKET-13: только вложение, привязанное к комментарию
+          заявки с этим токеном; чужой/битый токен → `404`;
+        - **без `token`** — KB-5/KB-7: только медиа статьи (`scope=kb`), если оно
+          вставлено в `content_html` хотя бы одного публичного (корневой раздел не
+          скрыт, узлы не удалены) узла базы знаний, иначе `404`. Так фронтенд
+          публичной БЗ рендерит `<img src="/api/public/files/{id}">`.
+
+        Поддерживается Range (`206 Partial Content`) для видео. Заголовки
+        `Content-Disposition`, `Accept-Ranges`, `nosniff`.
       parameters:
         - $ref: '#/components/parameters/IdPath'
         - name: token
           in: query
-          required: true
-          description: Токен анонимной заявки.
+          required: false
+          description: |
+            Токен анонимной заявки (TICKET-13). Если не передан — файл считается
+            медиа публичной статьи БЗ (KB-5/KB-7).
           schema: {type: string}
       responses:
         '200':

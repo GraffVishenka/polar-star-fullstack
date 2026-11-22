@@ -473,3 +473,57 @@ func TestService_OpenForUserWithoutAuthorizer(t *testing.T) {
 	}
 	_ = body.Close()
 }
+
+// KB-5/KB-7: медиа публичной статьи БЗ отдаётся без токена только при scope=kb
+// и наличии ссылки в публичном узле (проверку даёт kb.KBMediaAuthorizer).
+func TestService_OpenPublicKB(t *testing.T) {
+	kbMedia := newFakeKBMedia()
+	svc, _, _ := newTestService(t, Options{})
+	svc.SetKBMediaAuthorizer(kbMedia)
+	ctx := context.Background()
+
+	// Без авторизатора публичная выдача невозможна.
+	noAuthSvc, _, _ := newTestService(t, Options{})
+	if _, _, err := noAuthSvc.OpenPublicKB(ctx, 1); apiErrorStatus(t, err) != http.StatusNotFound {
+		t.Fatalf("без KBMediaAuthorizer: ожидался 404, получено %v", err)
+	}
+
+	// Файл статьи БЗ (scope=kb) создаётся авторизованным.
+	uploaderID := int64(4)
+	kbPending, err := svc.Upload(ctx, bytes.NewReader(pngHead), "kb.png")
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	kbFile, err := svc.Save(ctx, kbPending, UploadMeta{Scope: ScopeKB, UploaderID: &uploaderID})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Файл не вставлен в публичную статью → 404.
+	if _, _, err := svc.OpenPublicKB(ctx, kbFile.ID); apiErrorStatus(t, err) != http.StatusNotFound {
+		t.Fatalf("неиспользуемое медиа: ожидался 404, получено %v", err)
+	}
+	// Вставлен в публичный узел → отдаётся.
+	kbMedia.public[kbFile.ID] = true
+	file, body, err := svc.OpenPublicKB(ctx, kbFile.ID)
+	if err != nil {
+		t.Fatalf("OpenPublicKB: %v", err)
+	}
+	_ = body.Close()
+	if file.ID != kbFile.ID || file.Scope != ScopeKB {
+		t.Fatalf("file = %+v", file)
+	}
+
+	// Вложение заявки без токена не отдаётся даже если авторизатор «разрешил».
+	ticketFile := mustUploadFile(t, svc, "ticket.jpg")
+	kbMedia.public[ticketFile.ID] = true
+	if _, _, err := svc.OpenPublicKB(ctx, ticketFile.ID); apiErrorStatus(t, err) != http.StatusNotFound {
+		t.Fatalf("ticket-файл без токена: ожидался 404, получено %v", err)
+	}
+
+	// Ошибка авторизатора → 500.
+	kbMedia.err = errors.New("db is down")
+	if _, _, err := svc.OpenPublicKB(ctx, kbFile.ID); apiErrorStatus(t, err) != http.StatusInternalServerError {
+		t.Fatalf("ошибка авторизатора: ожидался 500, получено %v", err)
+	}
+}
