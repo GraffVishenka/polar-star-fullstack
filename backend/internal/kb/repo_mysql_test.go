@@ -189,16 +189,17 @@ func TestMySQLKbTreeLifecycle(t *testing.T) {
 	}
 
 	// Видимость и публичность узла (KB-7): скрытый корень закрывает потомков.
+	// Проверяем childA: grand после Move выше стал корневым и от root не зависит.
 	if _, err := repo.SetVisibility(ctx, root.ID, true, 0); err != nil {
 		t.Fatalf("SetVisibility(true): %v", err)
 	}
-	if visible, err := repo.NodePublic(ctx, grand.ID); err != nil || visible {
+	if visible, err := repo.NodePublic(ctx, childA.ID); err != nil || visible {
 		t.Fatalf("NodePublic при скрытом корне = %v, %v", visible, err)
 	}
 	if _, err := repo.SetVisibility(ctx, root.ID, false, 0); err != nil {
 		t.Fatalf("SetVisibility(false): %v", err)
 	}
-	if visible, err := repo.NodePublic(ctx, grand.ID); err != nil || !visible {
+	if visible, err := repo.NodePublic(ctx, childA.ID); err != nil || !visible {
 		t.Fatalf("NodePublic при видимом корне = %v, %v", visible, err)
 	}
 
