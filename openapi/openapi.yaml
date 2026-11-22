@@ -1863,7 +1863,6 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/push/subscriptions:
     post:
       tags: [Push]
@@ -1886,7 +1885,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/push/subscriptions/{id}:
     delete:
       tags: [Push]
@@ -1905,7 +1903,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/admin/trash:
     get:
       tags: [Trash]

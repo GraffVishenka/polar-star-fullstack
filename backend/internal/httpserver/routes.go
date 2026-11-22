@@ -209,10 +209,16 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 	// Ведомость помещения (EQ-8) — блок Б6/Б10.
 	r.Get("/warehouses/{id}/inventory.xlsx", s.notImplemented)
 
-	// Push (Б8).
-	r.Get("/push/public-key", s.notImplemented)
-	r.Post("/push/subscriptions", s.notImplemented)
-	r.Delete("/push/subscriptions/{id}", s.notImplemented)
+	// Push (Б8): публичный ключ VAPID и подписки устройств.
+	if ph := s.deps.PushHandler; ph != nil {
+		r.Get("/push/public-key", ph.PublicKey)
+		r.Post("/push/subscriptions", ph.Subscribe)
+		r.Delete("/push/subscriptions/{id}", ph.Delete)
+	} else {
+		r.Get("/push/public-key", s.notImplemented)
+		r.Post("/push/subscriptions", s.notImplemented)
+		r.Delete("/push/subscriptions/{id}", s.notImplemented)
+	}
 }
 
 // adminRoutes — маршруты только для ADMIN (PLAN §3.13).
