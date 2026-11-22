@@ -9,6 +9,7 @@ import {
   DatabaseOutlined,
   DeleteOutlined,
   LineChartOutlined,
+  ReadOutlined,
   RollbackOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -39,6 +40,12 @@ const adminMenu = [
     key: '/admin/buildings',
     icon: <AppstoreOutlined />,
     label: <Link to="/admin/buildings">Здания и склады</Link>,
+  },
+  {
+    // Ф7: модерация БЗ — видимость корневых разделов и удаление в корзину (KB-7).
+    key: '/admin/kb',
+    icon: <ReadOutlined />,
+    label: <Link to="/admin/kb">Модерация БЗ</Link>,
   },
   {
     key: '/admin/stats',
