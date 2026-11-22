@@ -81,7 +81,7 @@ func (s *WebPushSender) Enabled() bool {
 
 // PublicKey возвращает VAPID public key (пусто в no-op).
 func (s *WebPushSender) PublicKey() string {
-	if s == nil {
+	if s == nil || !s.Enabled() {
 		return ""
 	}
 	return s.publicKey
