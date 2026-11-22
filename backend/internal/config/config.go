@@ -52,6 +52,12 @@ type Config struct {
 	SeedAdminPassword string
 	SeedAdminFullName string
 
+	// SeedDemo включает демонстрационные данные (Б13): подкоманда
+	// `api seed --demo` или SEED_DEMO=true. Пароль демо-пользователей —
+	// SEED_DEMO_PASSWORD (по умолчанию Demo_12345).
+	SeedDemo         bool
+	SeedDemoPassword string
+
 	OpenAPIPath     string
 	ShutdownTimeout time.Duration
 	LogLevel        slog.Level
@@ -60,6 +66,10 @@ type Config struct {
 // IsProduction сообщает, работаем ли мы в продакшене (влияет на Secure-cookie,
 // обязательность VAPID и строгость секретов).
 func (c *Config) IsProduction() bool { return c.AppEnv == "production" }
+
+// defaultSeedDemoPassword — пароль демо-пользователей, если SEED_DEMO_PASSWORD
+// не задан. Только для стендов/приёмки, в production не используется.
+const defaultSeedDemoPassword = "Demo_12345"
 
 // DSN возвращает DSN для go-sql-driver/mysql.
 // multiStatements=true нужен только для миграций (golang-migrate выполняет файл
@@ -255,6 +265,13 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	cfg.SeedAdminFullName = def(getenv("SEED_ADMIN_FULL_NAME"), "Администратор")
 	if cfg.SeedAdminPassword != "" && len([]rune(cfg.SeedAdminPassword)) < 8 {
 		return nil, fmt.Errorf("SEED_ADMIN_PASSWORD: временный пароль должен быть не короче 8 символов (AUTH-4)")
+	}
+
+	// Б13: демо-данные для приёмки и ручной проверки (SEED_DEMO / `seed --demo`).
+	cfg.SeedDemo = parseBool(def(getenv("SEED_DEMO"), "false"))
+	cfg.SeedDemoPassword = def(getenv("SEED_DEMO_PASSWORD"), defaultSeedDemoPassword)
+	if cfg.SeedDemo && len([]rune(cfg.SeedDemoPassword)) < 8 {
+		return nil, fmt.Errorf("SEED_DEMO_PASSWORD: пароль демо-пользователей должен быть не короче 8 символов (AUTH-4)")
 	}
 
 	cfg.OpenAPIPath = def(getenv("OPENAPI_PATH"), "openapi/openapi.yaml")

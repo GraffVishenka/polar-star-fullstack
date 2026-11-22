@@ -70,7 +70,10 @@ func run() error {
 	case "migrate":
 		return db.Migrate(ctx, cfg.DSN(true), logger)
 	case "seed":
-		return runMigrateAndSeed(ctx, cfg, logger)
+		// Б13: `api seed --demo` (или SEED_DEMO=true) дополнительно создаёт
+		// демонстрационные данные; обычный `seed` не меняется.
+		demo := cfg.SeedDemo || hasFlag(os.Args[2:], "--demo")
+		return runMigrateAndSeed(ctx, cfg, logger, demo)
 	case "version":
 		fmt.Println(cfg.Version)
 		return nil
@@ -80,7 +83,8 @@ func run() error {
 }
 
 // runMigrateAndSeed применяет миграции и идемпотентный сидинг (make seed).
-func runMigrateAndSeed(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+// demo=true добавляет демонстрационные данные (Б13, `seed --demo`).
+func runMigrateAndSeed(ctx context.Context, cfg *config.Config, logger *slog.Logger, demo bool) error {
 	if err := db.Migrate(ctx, cfg.DSN(true), logger); err != nil {
 		return err
 	}
@@ -90,11 +94,27 @@ func runMigrateAndSeed(ctx context.Context, cfg *config.Config, logger *slog.Log
 	}
 	defer func() { _ = pool.Close() }()
 
-	return db.Seed(ctx, pool, logger, db.SeedOptions{
+	if err := db.Seed(ctx, pool, logger, db.SeedOptions{
 		AdminLogin:    cfg.SeedAdminLogin,
 		AdminFullName: cfg.SeedAdminFullName,
 		AdminPassword: cfg.SeedAdminPassword,
-	})
+	}); err != nil {
+		return err
+	}
+	if !demo {
+		return nil
+	}
+	return db.SeedDemo(ctx, pool, logger, db.DemoOptions{Password: cfg.SeedDemoPassword})
+}
+
+// hasFlag сообщает, есть ли точное значение среди аргументов подкоманды.
+func hasFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if strings.EqualFold(strings.TrimSpace(arg), flag) {
+			return true
+		}
+	}
+	return false
 }
 
 // runServer поднимает API и воркеры, применяет миграции/сидинг при старте.
@@ -125,6 +145,14 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		AdminPassword: cfg.SeedAdminPassword,
 	}); err != nil {
 		return err
+	}
+	// Б13: демо-данные создаются и при старте, если задан SEED_DEMO=true
+	// (удобно для docker compose demo-стенда). Ошибка демо-сида не блокирует
+	// API: она логируется, обычный стек продолжает работать.
+	if cfg.SeedDemo {
+		if err := db.SeedDemo(ctx, pool, logger, db.DemoOptions{Password: cfg.SeedDemoPassword}); err != nil {
+			logger.Error("demo seed при старте API не выполнен", "error", err)
+		}
 	}
 
 	// Платформенные зависимости: реальные часы. Календарь и push-настройки
