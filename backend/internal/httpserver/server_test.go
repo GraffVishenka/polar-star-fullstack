@@ -48,7 +48,15 @@ func (r *fakeRepo) UserByID(_ context.Context, id int64) (*auth.User, error) {
 	return nil, auth.ErrNotFound
 }
 
-func (r *fakeRepo) UpdatePassword(context.Context, int64, string, bool) error { return nil }
+func (r *fakeRepo) UpdatePassword(_ context.Context, id int64, passwordHash string, mustChange bool) error {
+	user, ok := r.byID[id]
+	if !ok {
+		return auth.ErrNotFound
+	}
+	user.PasswordHash = passwordHash
+	user.MustChangePassword = mustChange
+	return nil
+}
 
 func (r *fakeRepo) CreateRefreshToken(_ context.Context, userID int64, tokenHash string, expiresAt time.Time) (int64, error) {
 	r.nextID++
@@ -519,6 +527,75 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 	if blocked.Header().Get("Retry-After") == "" {
 		t.Fatal("429 без заголовка Retry-After")
+	}
+}
+
+// AUTH-5: смена своего пароля снимает must_change_password, оставляет текущую
+// refresh-сессию и отзывает остальные; временный пароль перестаёт работать.
+func TestChangePasswordClearsGateAndRevokesOtherSessions(t *testing.T) {
+	hash, err := auth.HashPassword("TempPass123")
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	user := activeUser(10, "dave", auth.RoleUser)
+	user.PasswordHash = hash
+	user.MustChangePassword = true
+	env := newTestEnv(t, user)
+
+	first := doRequest(env.handler, http.MethodPost, "/api/auth/login", "",
+		jsonBody(map[string]string{"login": "dave", "password": "TempPass123"}))
+	if first.Code != http.StatusOK {
+		t.Fatalf("login (temporary password) = %d (%s)", first.Code, first.Body.String())
+	}
+	var session auth.SessionDTO
+	if err := json.Unmarshal(first.Body.Bytes(), &session); err != nil {
+		t.Fatalf("session JSON: %v", err)
+	}
+	firstCookie := refreshCookieFrom(t, first)
+
+	// Вторая сессия (другое устройство) — её refresh должен быть отозван.
+	second := doRequest(env.handler, http.MethodPost, "/api/auth/login", "",
+		jsonBody(map[string]string{"login": "dave", "password": "TempPass123"}))
+	if second.Code != http.StatusOK {
+		t.Fatalf("второй login = %d", second.Code)
+	}
+	secondCookie := refreshCookieFrom(t, second)
+
+	change := httptest.NewRequest(http.MethodPost, "/api/auth/password",
+		jsonBody(map[string]string{"current_password": "TempPass123", "new_password": "NewSecret123"}))
+	change.RemoteAddr = "192.0.2.10:12345"
+	change.Header.Set("Authorization", "Bearer "+session.AccessToken)
+	change.AddCookie(firstCookie)
+	rec := httptest.NewRecorder()
+	env.handler.ServeHTTP(rec, change)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("смена пароля = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Флаг снят: защищённый маршрут доходит до заглушки 501, а не 428.
+	afterChange := doRequest(env.handler, http.MethodGet, "/api/tickets", session.AccessToken, nil)
+	if afterChange.Code != http.StatusNotImplemented {
+		t.Fatalf("после смены пароля GET /api/tickets = %d, want 501", afterChange.Code)
+	}
+
+	// Текущая сессия остаётся рабочей, вторая — отозвана.
+	if kept := doRequestWithCookie(env.handler, http.MethodPost, "/api/auth/refresh", firstCookie.Value); kept.Code != http.StatusOK {
+		t.Fatalf("текущая refresh-сессия = %d, want 200", kept.Code)
+	}
+	if revoked := doRequestWithCookie(env.handler, http.MethodPost, "/api/auth/refresh", secondCookie.Value); revoked.Code != http.StatusUnauthorized {
+		t.Fatalf("вторая refresh-сессия = %d, want 401", revoked.Code)
+	}
+
+	// Старый временный пароль больше не принимается, новый — принимается.
+	old := doRequest(env.handler, http.MethodPost, "/api/auth/login", "",
+		jsonBody(map[string]string{"login": "dave", "password": "TempPass123"}))
+	if old.Code != http.StatusUnauthorized {
+		t.Fatalf("вход со старым паролем = %d, want 401", old.Code)
+	}
+	fresh := doRequest(env.handler, http.MethodPost, "/api/auth/login", "",
+		jsonBody(map[string]string{"login": "dave", "password": "NewSecret123"}))
+	if fresh.Code != http.StatusOK {
+		t.Fatalf("вход с новым паролем = %d (%s)", fresh.Code, fresh.Body.String())
 	}
 }
 
