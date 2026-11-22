@@ -328,6 +328,39 @@ func TestService_AttachToCommentDedupes(t *testing.T) {
 	}
 }
 
+// Вложение нельзя «перехватить» другим комментарием, а медиа БЗ не является
+// вложением комментария (защита от угадывания id файла).
+func TestService_AttachToCommentRejectsForeignAndKB(t *testing.T) {
+	svc, repo, _ := newTestService(t, Options{})
+	ctx := context.Background()
+
+	ticketFile := mustUploadFile(t, svc, "ticket.jpg")
+	if err := svc.AttachToComment(ctx, 1, []int64{ticketFile.ID}); err != nil {
+		t.Fatalf("AttachToComment: %v", err)
+	}
+	// Тот же файл в другой комментарий — 404 (уже привязан).
+	if err := svc.AttachToComment(ctx, 2, []int64{ticketFile.ID}); apiErrorStatus(t, err) != http.StatusNotFound {
+		t.Fatalf("перехват вложения: ожидался 404, получено %v", err)
+	}
+	if got := repo.attachments(2); got != 0 {
+		t.Fatalf("вложений у чужого комментария = %d, want 0", got)
+	}
+
+	// Медиа БЗ (scope=kb) не привязывается к комментариям.
+	uploaderID := int64(3)
+	kbPending, err := svc.Upload(ctx, bytes.NewReader(pngHead), "kb.png")
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	kbFile, err := svc.Save(ctx, kbPending, UploadMeta{Scope: ScopeKB, UploaderID: &uploaderID})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := svc.AttachToComment(ctx, 3, []int64{kbFile.ID}); apiErrorStatus(t, err) != http.StatusNotFound {
+		t.Fatalf("медиа БЗ: ожидался 404, получено %v", err)
+	}
+}
+
 // MarkLinked используется Б6/Б5 для файлов, привязанных иначе, чем комментарий.
 func TestService_MarkLinked(t *testing.T) {
 	svc, repo, _ := newTestService(t, Options{})

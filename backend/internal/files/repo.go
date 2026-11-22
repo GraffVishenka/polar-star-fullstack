@@ -79,7 +79,10 @@ func (r *MySQLRepository) MarkLinked(ctx context.Context, fileIDs []int64, at ti
 //     привязанные файлы);
 //   - все file_ids должны существовать, иначе ErrNotFound;
 //   - пара (comment_id, file_id) уникальна — повторный вызов идемпотентен;
-//   - linked_at проставляется только тем файлам, у которых он пуст.
+//   - linked_at проставляется только тем файлам, у которых он пуст;
+//   - привязывать можно только свежие файлы scope=ticket: уже привязанный
+//     файл нельзя «перехватить» другим комментарием даже при угаданном id
+//     (иначе аноним с валидным токеном мог бы прочитать чужое вложение).
 //
 // FK на comments появится в Б5; до этого comment_id проверяется вызывающим
 // доменом (Б5).
@@ -106,14 +109,33 @@ func (r *MySQLRepository) AttachToComment(ctx context.Context, commentID int64, 
 
 	// Блокируем строки файлов: параллельная очистка orphan не должна удалить
 	// файл между проверкой существования и вставкой связи.
-	q := `SELECT id FROM files WHERE id IN (` + placeholders(len(fileIDs)) + `) FOR UPDATE`
-	rows, err := tx.QueryContext(ctx, q, int64Args(fileIDs)...)
+	lockQuery := `SELECT id, scope, linked_at FROM files WHERE id IN (` +
+		placeholders(len(fileIDs)) + `) FOR UPDATE`
+	rows, err := tx.QueryContext(ctx, lockQuery, int64Args(fileIDs)...)
 	if err != nil {
 		return fmt.Errorf("files: проверка файлов: %w", err)
 	}
 	found := 0
+	var alreadyLinked []int64
 	for rows.Next() {
+		var (
+			id       int64
+			scope    string
+			linkedAt sql.NullTime
+		)
+		if err := rows.Scan(&id, &scope, &linkedAt); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("files: чтение файла при привязке: %w", err)
+		}
 		found++
+		// Вложением комментария может быть только файл заявки.
+		if Scope(scope) != ScopeTicket {
+			_ = rows.Close()
+			return ErrNotFound
+		}
+		if linkedAt.Valid {
+			alreadyLinked = append(alreadyLinked, id)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
@@ -122,6 +144,37 @@ func (r *MySQLRepository) AttachToComment(ctx context.Context, commentID int64, 
 	_ = rows.Close()
 	if found != len(fileIDs) {
 		return ErrNotFound
+	}
+
+	// Уже привязанные файлы допустимы, только если они привязаны к этому же
+	// комментарию (повторный вызов идемпотентен).
+	if len(alreadyLinked) > 0 {
+		ownQuery := `SELECT file_id FROM comment_files WHERE comment_id = ? AND file_id IN (` +
+			placeholders(len(alreadyLinked)) + `)`
+		ownArgs := append([]any{commentID}, int64Args(alreadyLinked)...)
+		ownRows, err := tx.QueryContext(ctx, ownQuery, ownArgs...)
+		if err != nil {
+			return fmt.Errorf("files: проверка прежних связей файла: %w", err)
+		}
+		own := make(map[int64]struct{}, len(alreadyLinked))
+		for ownRows.Next() {
+			var id int64
+			if err := ownRows.Scan(&id); err != nil {
+				_ = ownRows.Close()
+				return fmt.Errorf("files: чтение прежних связей файла: %w", err)
+			}
+			own[id] = struct{}{}
+		}
+		if err := ownRows.Err(); err != nil {
+			_ = ownRows.Close()
+			return fmt.Errorf("files: чтение прежних связей файла: %w", err)
+		}
+		_ = ownRows.Close()
+		for _, id := range alreadyLinked {
+			if _, ok := own[id]; !ok {
+				return ErrNotFound
+			}
+		}
 	}
 
 	const insert = `INSERT IGNORE INTO comment_files (comment_id, file_id, created_at) VALUES (?, ?, ?)`

@@ -98,8 +98,19 @@ func (r *fakeRepo) AttachToComment(_ context.Context, commentID int64, fileIDs [
 		return ErrTooManyAttachments
 	}
 	for _, id := range fileIDs {
-		if _, exists := r.files[id]; !exists {
+		f, exists := r.files[id]
+		if !exists {
 			return ErrNotFound
+		}
+		// Вложением комментария может быть только файл заявки; уже привязанный
+		// файл допустим лишь в «своём» комментарии (защита от перехвата по id).
+		if f.Scope != ScopeTicket {
+			return ErrNotFound
+		}
+		if f.LinkedAt != nil {
+			if _, ok := linked[id]; !ok {
+				return ErrNotFound
+			}
 		}
 	}
 	for _, id := range fileIDs {
