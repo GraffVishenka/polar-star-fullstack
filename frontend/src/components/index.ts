@@ -17,6 +17,20 @@ export { ConfirmDialog } from './ConfirmDialog';
 export type { ConfirmDialogProps } from './ConfirmDialog';
 export { ExportButton, filenameFromPath, saveBlob } from './ExportButton';
 export type { ExportButtonProps } from './ExportButton';
+export {
+  InventoryExportButton,
+  StatsExportButton,
+  useFileDownload,
+  useInventoryExport,
+  useStatsExport,
+} from './exports';
+export type {
+  InventoryExportButtonProps,
+  StatsExportButtonProps,
+  UseFileDownloadResult,
+  UseInventoryExportResult,
+  UseStatsExportResult,
+} from './exports';
 export { BuildingBadge } from './BuildingBadge';
 export type { BuildingBadgeProps } from './BuildingBadge';
 export { BuildingSelect } from './BuildingSelect';

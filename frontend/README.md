@@ -155,6 +155,25 @@ MSW-хендлеры заявок — `src/mocks/handlers/tickets.ts` (влад�
 компоненты в `src/pages/public/components/`, cookie-хук — `src/hooks/useAnonBuilding.ts`,
 копирование ссылки — `src/app/clipboard.ts`. MSW — `src/mocks/handlers/public.ts`.
 
+## Документы и экспорт (Ф8)
+
+Единый механизм скачивания Word/Excel: `GET` → blob → файл с именем из
+`Content-Disposition`, `attachment`, `Cache-Control` не кэшируем. Внутри —
+`apiDownload` (Bearer/`skipAuth`, single-flight refresh, таймаут), `saveBlob`,
+тосты с `request_id` для 5xx и русские тексты 403/404/422/таймаута. Ошибка или
+пустой ответ не создают файл, повторное нажатие во время загрузки игнорируется.
+
+| Модуль                                        | Для кого | Что делает                                                                                               |
+| --------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `ExportButton` (`@/components`)               | все      | Универсальная кнопка, Word-заявки (`ticket_{id}.docx`)                                                   |
+| `useFileDownload` (`@/components/exports`)    | все      | Базовый хук: `download/loading/error/filename/canDownload`                                               |
+| `useInventoryExport`, `InventoryExportButton` | **fe-3** | Ведомость помещения `GET /warehouses/{id}/inventory.xlsx`, 422 при >1000 позиций                         |
+| `useStatsExport`, `StatsExportButton`         | **fe-2** | Excel-статистика `GET /stats/export.xlsx`: `user_id`, `building_id`, `from`, `to`; 403 для чужого отчёта |
+
+Примеры подключения и контракт ошибок — `frontend/src/components/exports/README.md`.
+Word-выгрузка уже стоит в `TicketDrawer` (`/tickets`) и на публичной `/t/{token}`
+(`skipAuth`), имя файла приходит из `Content-Disposition` с fallback `ticket_{id}.docx`.
+
 ## MSW: что покрыто
 
 Все эндпоинты §3.13. Хендлеры разбиты по доменам — правит только владелец домена:
@@ -229,23 +248,19 @@ MSW-хендлеры заявок — `src/mocks/handlers/tickets.ts` (влад�
 
 ## Ограничения Ф5
 
-- **Контракт-гэпы** (все три — аддитивные расширения, нужен `openapi.yaml` и согласование
-  с lead/be; клиент уже работает через MSW):
-  1. `GET /api/public/problem-types` — анониму нужен справочник для формы (TICKET-4),
-     в §3.13 он есть только у ADMIN;
-  2. `GET /api/public/tickets/{token}/comments?page&size` — публичная пагинация
-     комментариев по 50 (в контракте был только POST);
-  3. `POST /api/public/tickets/{token}/files` (multipart) — вложение комментария анонима:
-     `POST /api/files` доступен только USER/ADMIN, а PUB-6 разрешает файлы.
+- **Контракт-гэпы**: два из трёх закрыты бэкендом Б5 — `GET /api/public/tickets/{token}/comments`
+  (пагинация 50) и `POST /api/public/tickets/{token}/files` (алиас `/api/public/files?token=`)
+  уже в `openapi.yaml`, клиент использует их. Остаётся `GET /api/public/problem-types` —
+  анониму нужен справочник для формы (TICKET-4), в контракте он есть только у ADMIN
+  (`src/api/public.ts`, мок `handlers/public.ts`; нужен аддитивный эндпоинт).
 - Публичная доска не показывает `is_overdue`: TICKET-5 не включает флаг в карточку,
   поэтому просрочка отображается только в токен-карточке (NFR-7 — не считаем на клиенте).
 - Медиа статей БЗ в дереве/статье переписывается на `/api/public/files/{id}`
   (в контракте `<img src="/api/files/{id}">` требует авторизации).
 - В jsdom MSW не разбирает `multipart/form-data`, поэтому тесты публичного комментария
   подменяют `uploadPublicCommentFile`; сам транспорт и лимиты проверяются в Ф1/Б3.
-- Ф8 доработает `ExportButton` (состояния/ошибки) для публичной карточки; сейчас кнопка
-  использует общий компонент и `skipAuth`.
-- Ф11: Playwright-сценарии публичного периметра (приватное окно, cookie, Word, 375 px).
+- Word/Excel-выгрузки в Ф8 переведены на общий `useFileDownload` (см. раздел ниже);
+  Ф11: Playwright-сценарии публичного периметра (приватное окно, cookie, Word, 375 px).
 
 ## Docker
 

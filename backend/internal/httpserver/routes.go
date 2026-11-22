@@ -69,8 +69,30 @@ func (s *Server) routes() http.Handler {
 			api.Post("/public/files", s.notImplemented)
 		}
 
-		api.Get("/public/kb/tree", s.notImplemented)
-		api.Get("/public/kb/nodes/{id}", s.notImplemented)
+		// База знаний (Б6, KB-7/KB-8): дерево и статья для анонима. Медиа
+		// публичной статьи отдаётся тем же `GET /api/public/files/{id}` без
+		// токена (проверка KBMediaAuthorizer в files, реализация — kb).
+		if s.deps.KBHandler != nil {
+			api.Get("/public/kb/tree", s.deps.KBHandler.PublicTree)
+			api.Get("/public/kb/nodes/{id}", s.deps.KBHandler.PublicGet)
+		} else {
+			api.Get("/public/kb/tree", s.notImplemented)
+			api.Get("/public/kb/nodes/{id}", s.notImplemented)
+		}
+
+		// Публичные справочники и настройки (Б7): форма анонимной заявки и
+		// публичный дашборд (TICKET-4, TICKET-5). Лимиты AUTH-3 к ним не
+		// применяются (они заданы только для зданий и создания заявки).
+		if dh := s.deps.DictionariesHandler; dh != nil {
+			api.Get("/public/problem-types", dh.PublicProblemTypes)
+		} else {
+			api.Get("/public/problem-types", s.notImplemented)
+		}
+		if sh := s.deps.SettingsHandler; sh != nil {
+			api.Get("/public/settings", sh.Public)
+		} else {
+			api.Get("/public/settings", s.notImplemented)
+		}
 
 		// ЗАЩИЩЁННЫЕ МАРШРУТЫ (USER/ADMIN). requireAuth проверяет is_active в БД
 		// на каждом запросе (AUTH-6), затем must_change_password (AUTH-4).
@@ -124,17 +146,36 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 		r.Get("/files/{id}", s.notImplemented)
 	}
 
-	// База знаний (Б6).
-	r.Get("/kb/tree", s.notImplemented)
-	r.Get("/kb/nodes/{id}", s.notImplemented)
-	r.Post("/kb/nodes", s.notImplemented)
-	r.Patch("/kb/nodes/{id}", s.notImplemented)
-	r.Post("/kb/nodes/{id}/move", s.notImplemented)
+	// База знаний (Б6): дерево, узлы, правка и перемещение — USER/ADMIN (KB-3).
+	// Удаление и видимость — только ADMIN (см. adminRoutes).
+	if kbHandler := s.deps.KBHandler; kbHandler != nil {
+		r.Get("/kb/tree", kbHandler.Tree)
+		r.Get("/kb/nodes/{id}", kbHandler.Get)
+		r.Post("/kb/nodes", kbHandler.Create)
+		r.Patch("/kb/nodes/{id}", kbHandler.Update)
+		r.Post("/kb/nodes/{id}/move", kbHandler.Move)
+	} else {
+		r.Get("/kb/tree", s.notImplemented)
+		r.Get("/kb/nodes/{id}", s.notImplemented)
+		r.Post("/kb/nodes", s.notImplemented)
+		r.Patch("/kb/nodes/{id}", s.notImplemented)
+		r.Post("/kb/nodes/{id}/move", s.notImplemented)
+	}
 
 	// Пользователи и статистика (Б2, Б9).
 	r.Get("/users/assignable", s.usersAssignable)
 	r.Get("/stats/me", s.notImplemented)
 	r.Get("/stats/export.xlsx", s.notImplemented)
+
+	// Справочники: чтение активных — всем авторизованным (Б7). include_inactive
+	// учитывается только для ADMIN (проверка в handler'е).
+	if dh := s.deps.DictionariesHandler; dh != nil {
+		r.Get("/problem-types", dh.ListProblemTypes)
+		r.Get("/equipment-types", dh.ListEquipmentTypes)
+	} else {
+		r.Get("/problem-types", s.notImplemented)
+		r.Get("/equipment-types", s.notImplemented)
+	}
 
 	// Здания и склады: чтение всем авторизованным (EQ-1, EQ-7, Б4).
 	if bh := s.deps.BuildingsHandler; bh != nil {
@@ -179,9 +220,14 @@ func (s *Server) adminRoutes(r chi.Router) {
 	// Заявки: удаление в корзину — только ADMIN (TICKET-12).
 	r.Delete("/tickets/{id}", s.ticketsDelete)
 
-	// БЗ: удаление и тумблер видимости — только ADMIN (KB-3, KB-7).
-	r.Delete("/kb/nodes/{id}", s.notImplemented)
-	r.Patch("/kb/nodes/{id}/visibility", s.notImplemented)
+	// БЗ: удаление и тумблер видимости — только ADMIN (KB-3, KB-7, Б6).
+	if kbHandler := s.deps.KBHandler; kbHandler != nil {
+		r.Delete("/kb/nodes/{id}", kbHandler.Delete)
+		r.Patch("/kb/nodes/{id}/visibility", kbHandler.SetVisibility)
+	} else {
+		r.Delete("/kb/nodes/{id}", s.notImplemented)
+		r.Patch("/kb/nodes/{id}/visibility", s.notImplemented)
+	}
 
 	// Пользователи (AUTH-4..AUTH-9, Б2).
 	r.Get("/admin/users", s.usersList)
@@ -213,20 +259,44 @@ func (s *Server) adminRoutes(r chi.Router) {
 		r.Delete("/equipment/{id}", s.notImplemented)
 	}
 
-	// Настройки и справочники (Б7).
-	r.Get("/admin/settings", s.notImplemented)
-	r.Put("/admin/settings", s.notImplemented)
-	r.Get("/admin/problem-types", s.notImplemented)
-	r.Post("/admin/problem-types", s.notImplemented)
-	r.Patch("/admin/problem-types/{id}", s.notImplemented)
-	r.Delete("/admin/problem-types/{id}", s.notImplemented)
-	r.Get("/admin/equipment-types", s.notImplemented)
-	r.Post("/admin/equipment-types", s.notImplemented)
-	r.Patch("/admin/equipment-types/{id}", s.notImplemented)
-	r.Delete("/admin/equipment-types/{id}", s.notImplemented)
-	r.Get("/admin/holidays", s.notImplemented)
-	r.Post("/admin/holidays", s.notImplemented)
-	r.Delete("/admin/holidays/{id}", s.notImplemented)
+	// Настройки и праздники (Б7, CAL-1..CAL-3). PATCH праздника — аддитивное
+	// дополнение контракта: правка даты вместо удаления и создания заново.
+	if sh := s.deps.SettingsHandler; sh != nil {
+		r.Get("/admin/settings", sh.AdminGet)
+		r.Put("/admin/settings", sh.Update)
+		r.Get("/admin/holidays", sh.ListHolidays)
+		r.Post("/admin/holidays", sh.CreateHoliday)
+		r.Patch("/admin/holidays/{id}", sh.UpdateHoliday)
+		r.Delete("/admin/holidays/{id}", sh.DeleteHoliday)
+	} else {
+		r.Get("/admin/settings", s.notImplemented)
+		r.Put("/admin/settings", s.notImplemented)
+		r.Get("/admin/holidays", s.notImplemented)
+		r.Post("/admin/holidays", s.notImplemented)
+		r.Patch("/admin/holidays/{id}", s.notImplemented)
+		r.Delete("/admin/holidays/{id}", s.notImplemented)
+	}
+
+	// Справочники (Б7): удаление = деактивация (история сохраняется).
+	if dh := s.deps.DictionariesHandler; dh != nil {
+		r.Get("/admin/problem-types", dh.ListProblemTypes)
+		r.Post("/admin/problem-types", dh.CreateProblemType)
+		r.Patch("/admin/problem-types/{id}", dh.UpdateProblemType)
+		r.Delete("/admin/problem-types/{id}", dh.DeleteProblemType)
+		r.Get("/admin/equipment-types", dh.ListEquipmentTypes)
+		r.Post("/admin/equipment-types", dh.CreateEquipmentType)
+		r.Patch("/admin/equipment-types/{id}", dh.UpdateEquipmentType)
+		r.Delete("/admin/equipment-types/{id}", dh.DeleteEquipmentType)
+	} else {
+		r.Get("/admin/problem-types", s.notImplemented)
+		r.Post("/admin/problem-types", s.notImplemented)
+		r.Patch("/admin/problem-types/{id}", s.notImplemented)
+		r.Delete("/admin/problem-types/{id}", s.notImplemented)
+		r.Get("/admin/equipment-types", s.notImplemented)
+		r.Post("/admin/equipment-types", s.notImplemented)
+		r.Patch("/admin/equipment-types/{id}", s.notImplemented)
+		r.Delete("/admin/equipment-types/{id}", s.notImplemented)
+	}
 
 	// Статистика и корзина — ADMIN (STATS-1, TRASH-*).
 	r.Get("/admin/stats", s.notImplemented)

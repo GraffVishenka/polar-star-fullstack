@@ -2,7 +2,7 @@
 import { http } from 'msw';
 import { guard } from '../auth';
 import { computeStats } from '../db';
-import { API, fileResponse, forbidden, json } from '../http';
+import { API, fileResponse, forbidden, json, validation } from '../http';
 
 function periodFrom(request: Request): {
   from?: string;
@@ -41,6 +41,12 @@ export const statsHandlers = [
     }
     if (auth.user.role !== 'ADMIN' && period.buildingId) {
       return forbidden('Фильтр по зданию доступен только администратору');
+    }
+    // STATS-3: период по `completed_at`; обратный диапазон — ошибка валидации.
+    if (period.from && period.to && period.from > period.to) {
+      return validation('Дата начала периода позже даты окончания', {
+        from: 'должна быть <= to',
+      });
     }
 
     const stats = computeStats(

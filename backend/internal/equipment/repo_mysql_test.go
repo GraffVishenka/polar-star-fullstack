@@ -196,6 +196,36 @@ func TestMySQLEquipmentMoveAndJournal(t *testing.T) {
 	}
 }
 
+// Б7: деактивация типа оборудования (справочник) не ломает старые записи —
+// карточка оборудования продолжает отдавать название типа.
+func TestMySQLDeactivatedEquipmentTypeVisibleInExistingRecords(t *testing.T) {
+	pool := testDB(t)
+	repo := NewMySQLRepository(pool)
+	ctx := context.Background()
+	fx := newMoveFixture(t, pool, repo)
+
+	if _, err := pool.ExecContext(ctx,
+		`UPDATE equipment_types SET is_active = 0 WHERE id = ?`, fx.typeID); err != nil {
+		t.Fatalf("деактивация типа: %v", err)
+	}
+
+	item, err := repo.ByID(ctx, fx.equipmentID)
+	if err != nil {
+		t.Fatalf("ByID: %v", err)
+	}
+	if item.EquipmentTypeName == "" {
+		t.Fatalf("название деактивированного типа потеряно: %+v", item)
+	}
+
+	items, _, err := repo.List(ctx, ListFilter{EquipmentTypeID: &fx.typeID, Page: 1, Size: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 1 || items[0].EquipmentTypeName == "" {
+		t.Fatalf("фильтр по деактивированному типу = %+v", items)
+	}
+}
+
 // Б4: 50 параллельных перемещений одной единицы дают 50 записей журнала без
 // потерь (транзакция + SELECT ... FOR UPDATE).
 func TestMySQLConcurrentMoves(t *testing.T) {

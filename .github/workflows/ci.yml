@@ -49,7 +49,21 @@ jobs:
           go run ./cmd/api migrate
           DATABASE_URL="$TEST_DATABASE_URL" go run ./cmd/api migrate
       - name: tests
-        run: go test ./... -count=1 -timeout 10m
+        run: |
+          set +e
+          go test ./... -count=1 -timeout 10m -json > /tmp/tests.json
+          code=$?
+          if [ $code -ne 0 ]; then
+            echo "--- failing tests ---"
+            grep '"Action":"fail"' /tmp/tests.json | head -15 | while IFS= read -r line; do
+              echo "::error::$(printf '%s' "$line" | cut -c1-400)"
+            done
+            echo "--- last output ---"
+            grep '"Action":"output"' /tmp/tests.json | tail -25 | while IFS= read -r line; do
+              echo "::error::$(printf '%s' "$line" | cut -c1-800)"
+            done
+            exit $code
+          fi
 
   frontend:
     name: Frontend (React + TS)

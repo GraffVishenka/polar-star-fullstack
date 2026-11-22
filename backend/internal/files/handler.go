@@ -102,10 +102,15 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	h.serveFile(w, r, file, body)
 }
 
-// PublicGet — GET|HEAD /api/public/files/{id}?token= (TICKET-13).
-// Доступен только файл, привязанный к комментарию заявки с этим токеном;
-// любой чужой/битый токен даёт 404 (не раскрываем существование файла).
-// Пока Б5 не подключил реализацию TicketTokenAuthorizer — всегда 404.
+// PublicGet — GET|HEAD /api/public/files/{id} (TICKET-13, KB-5, KB-7).
+//
+// Два режима:
+//   - с `?token=` — файл заявки анонима: доступен только вложение, привязанное
+//     к комментарию заявки с этим токеном;
+//   - без токена — медиа публичной статьи БЗ: отдаётся только файл scope=kb,
+//     вставленный в content_html публичного (не скрытого, не удалённого) узла.
+//
+// В обоих случаях чужой/битый доступ неотличим от несуществующего файла (404).
 func (h *Handler) PublicGet(w http.ResponseWriter, r *http.Request) {
 	id, ok := fileIDFromPath(r)
 	if !ok {
@@ -113,11 +118,17 @@ func (h *Handler) PublicGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
+
+	var (
+		file *File
+		body io.ReadSeekCloser
+		err  error
+	)
 	if token == "" {
-		h.fail(w, r, apierr.NotFound("Файл не найден"))
-		return
+		file, body, err = h.svc.OpenPublicKB(r.Context(), id)
+	} else {
+		file, body, err = h.svc.OpenPublic(r.Context(), id, token)
 	}
-	file, body, err := h.svc.OpenPublic(r.Context(), id, token)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -259,10 +270,24 @@ func (h *Handler) mapBodyError(err error) error {
 	return apierr.BadRequest(apierr.CodeValidation, "Некорректное тело запроса")
 }
 
-// serveFile выдаёт содержимое через http.ServeContent: он сам обрабатывает
-// Range (206 Partial Content), HEAD, Content-Length и If-Range, что нужно для
-// перемотки видео до 200 МБ (Б3).
+// serveFile выдаёт содержимое файла (единая точка Б3).
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, file *File, body io.ReadSeekCloser) {
+	ServeInline(w, r, file, body)
+}
+
+// ServeInline отдаёт содержимое файла inline через http.ServeContent: он сам
+// обрабатывает Range (206 Partial Content), HEAD, Content-Length и If-Range, что
+// нужно для перемотки видео до 200 МБ (Б3).
+//
+// Функция экспортирована как единая точка выдачи медиа: её используют
+// `GET /api/files/{id}` (Б3) и публичный `GET /api/public/files/{id}` в обоих
+// режимах (вложение заявки по токену и медиа статьи БЗ, Б6), чтобы заголовки не
+// расходились.
+func ServeInline(w http.ResponseWriter, r *http.Request, file *File, body io.ReadSeekCloser) {
+	if file == nil || body == nil {
+		apierr.Respond(w, r, apierr.NotFound("Файл не найден"))
+		return
+	}
 	defer func() { _ = body.Close() }()
 
 	header := w.Header()

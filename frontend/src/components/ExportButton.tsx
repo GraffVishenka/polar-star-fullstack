@@ -1,19 +1,21 @@
 /**
- * ExportButton — скачивание документов (Word/Excel) через API (DOC-1..DOC-3, Ф8).
+ * ExportButton — кнопка скачивания документов (Word/Excel) через API (DOC-1..DOC-3, Ф8).
  *
- * Требования:
- *  - состояния загрузки/ошибки; повторное нажатие во время запроса игнорируется,
- *    чтобы не плодить дубли;
- *  - имя файла берётся из `Content-Disposition`, иначе — из пути;
- *  - пустой/битый ответ не создаёт «пустой» файл;
- *  - 422 (слишком много позиций) объясняется человеческим текстом.
+ * Поведение (см. `useFileDownload`):
+ *  - состояния загрузки/ошибки; повторное нажатие во время запроса игнорируется;
+ *  - имя файла берётся из `Content-Disposition`, иначе — из `filename`/пути;
+ *  - пустой/битый ответ не создаёт «пустой» файл (attachment, DOC-3);
+ *  - 422/404/403/500 и таймаут объясняются по-русски, для 5xx — тост с `request_id`.
  */
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Button, Tooltip } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
-import { apiDownload } from '@/api/client';
-import { ApiError } from '@/api/errors';
-import { toast } from '@/app/toast';
+import type { ApiError } from '@/api/errors';
+import { DEFAULT_DOWNLOAD_TIMEOUT_MS, filenameFromPath, saveBlob } from './exports/download';
+import { useFileDownload, type DownloadErrorMapper } from './exports/useFileDownload';
+
+/** Переэкспорт утилит для обратной совместимости (Ф2/Ф5 используют их из этого модуля). */
+export { filenameFromPath, saveBlob, DEFAULT_DOWNLOAD_TIMEOUT_MS };
 
 export interface ExportButtonProps {
   /** Путь API, например `/tickets/12/export.docx`. */
@@ -28,39 +30,17 @@ export interface ExportButtonProps {
   disabled?: boolean;
   /** Публичная карточка `/t/{token}`: скачивание без Bearer. */
   skipAuth?: boolean;
-  /** Пояснение при ошибке. */
+  /** Пояснение при ошибке (tooltip). */
   errorHint?: ReactNode;
+  /** Таймаут запроса, мс (по умолчанию 120 с). */
+  timeoutMs?: number;
+  /** Свой маппинг ошибок (например, ведомость/статистика). */
+  errorMessage?: DownloadErrorMapper;
+  /** Текст успешного тоста (второй аргумент — имя файла). */
+  successMessage?: string;
   onError?: (error: ApiError) => void;
   onSuccess?: (filename: string) => void;
   className?: string;
-}
-
-/** Имя файла из пути: `/tickets/12/export.docx` → `export.docx`. */
-export function filenameFromPath(path: string): string {
-  const clean = path.split('?')[0]?.replace(/\/+$/, '') ?? '';
-  const last = clean.split('/').pop();
-  return last && last.includes('.') ? last : 'download';
-}
-
-/** Сохраняет blob как файл средствами браузера. */
-export function saveBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  // Даём браузеру начать скачивание, затем освобождаем память.
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function exportErrorMessage(error: ApiError): string {
-  if (error.code === 'VALIDATION_ERROR' && error.status === 422) {
-    return 'Слишком много позиций для выгрузки — сократите выборку';
-  }
-  return error.userMessage;
 }
 
 export function ExportButton({
@@ -74,38 +54,23 @@ export function ExportButton({
   disabled = false,
   skipAuth = false,
   errorHint,
+  timeoutMs = DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  errorMessage,
+  successMessage,
   onError,
   onSuccess,
   className,
 }: ExportButtonProps) {
-  const [loading, setLoading] = useState(false);
-  // Ref защищает от двойного клика до перерисовки (Ф8: без дублей запросов).
-  const inFlight = useRef(false);
-
-  const handleClick = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    setLoading(true);
-    try {
-      const result = await apiDownload(path, { skipAuth });
-      if (!result.blob.size)
-        throw new ApiError({ code: 'INTERNAL_ERROR', status: 500, message: 'Пустой файл' });
-      const name = filename ?? result.filename ?? filenameFromPath(path);
-      saveBlob(result.blob, name);
-      toast.success('Файл готов', name);
-      onSuccess?.(name);
-    } catch (cause) {
-      const error =
-        cause instanceof ApiError
-          ? cause
-          : new ApiError({ code: 'NETWORK_ERROR', status: 0, isNetworkError: true, cause });
-      toast.error(exportErrorMessage(error));
-      onError?.(error);
-    } finally {
-      inFlight.current = false;
-      setLoading(false);
-    }
-  }, [filename, onError, onSuccess, path, skipAuth]);
+  const { download, loading, canDownload } = useFileDownload({
+    path,
+    filename,
+    skipAuth,
+    timeoutMs,
+    errorMessage,
+    successMessage,
+    onSuccess,
+    onError,
+  });
 
   const button = (
     <Button
@@ -115,8 +80,8 @@ export function ExportButton({
       block={block}
       icon={icon}
       loading={loading}
-      disabled={disabled}
-      onClick={() => void handleClick()}
+      disabled={disabled || !canDownload}
+      onClick={() => void download()}
       data-testid="export-button"
     >
       {label}

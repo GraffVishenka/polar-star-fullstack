@@ -408,6 +408,55 @@ func TestHandler_PublicUploadUnknownToken(t *testing.T) {
 	assertNoStaging(t, store.Dir())
 }
 
+// KB-5/KB-7: `GET /api/public/files/{id}` без токена отдаёт медиа публичной
+// статьи БЗ, но не вложения заявок.
+func TestHandler_PublicKBMediaWithoutToken(t *testing.T) {
+	kbMedia := newFakeKBMedia()
+	h, _, _ := newTestHandler(t, Options{})
+	h.svc.SetKBMediaAuthorizer(kbMedia)
+	router := testRouter(h)
+
+	uploaderID := int64(3)
+	kbPending, err := h.svc.Upload(context.Background(), bytes.NewReader(pngHead), "kb.png")
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	kbFile, err := h.svc.Save(context.Background(), kbPending, UploadMeta{Scope: ScopeKB, UploaderID: &uploaderID})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	path := "/api/public/files/" + strconv.FormatInt(kbFile.ID, 10)
+
+	// Ссылки в публичной статье ещё нет → 404.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("без ссылки в статье: %d, want 404", rec.Code)
+	}
+	// Ссылка есть → 200, картинка отдаётся анониму.
+	kbMedia.public[kbFile.ID] = true
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("медиа статьи: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !bytes.Equal(rec.Body.Bytes(), pngHead) {
+		t.Fatal("аноним получил не то содержимое")
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("nosniff отсутствует: %q", got)
+	}
+
+	// Вложение заявки без токена не отдаётся, даже если «статья ссылается».
+	ticket := mustUploadFile(t, h.svc, "ticket.jpg")
+	kbMedia.public[ticket.ID] = true
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/public/files/"+strconv.FormatInt(ticket.ID, 10), nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("ticket-файл без токена: %d, want 404", rec.Code)
+	}
+}
+
 // Кириллица в имени файла кодируется по RFC 2231, но остаётся inline.
 func TestHandler_ContentDispositionCyrillic(t *testing.T) {
 	h, _, _ := newTestHandler(t, Options{})

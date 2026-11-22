@@ -80,6 +80,48 @@ type PublicTicketsAPI interface {
 	PublicAddComment(w http.ResponseWriter, r *http.Request)
 }
 
+// KBAPI — база знаний (Б6, KB-1..KB-8): дерево, узлы, перемещение, видимость.
+// Интерфейс объявлен здесь, чтобы httpserver не зависел от internal/kb и
+// тестировался без БД. Публичная выдача медиа статьи идёт через
+// `GET /api/public/files/{id}` (files.KBMediaAuthorizer, реализация — kb).
+type KBAPI interface {
+	Tree(w http.ResponseWriter, r *http.Request)
+	PublicTree(w http.ResponseWriter, r *http.Request)
+	Get(w http.ResponseWriter, r *http.Request)
+	PublicGet(w http.ResponseWriter, r *http.Request)
+	Create(w http.ResponseWriter, r *http.Request)
+	Update(w http.ResponseWriter, r *http.Request)
+	Move(w http.ResponseWriter, r *http.Request)
+	Delete(w http.ResponseWriter, r *http.Request)
+	SetVisibility(w http.ResponseWriter, r *http.Request)
+}
+
+// SettingsAPI — настройки приложения, их публичное подмножество и праздники
+// рабочего календаря (Б7, CAL-1..CAL-3).
+type SettingsAPI interface {
+	AdminGet(w http.ResponseWriter, r *http.Request)
+	Update(w http.ResponseWriter, r *http.Request)
+	Public(w http.ResponseWriter, r *http.Request)
+	ListHolidays(w http.ResponseWriter, r *http.Request)
+	CreateHoliday(w http.ResponseWriter, r *http.Request)
+	UpdateHoliday(w http.ResponseWriter, r *http.Request)
+	DeleteHoliday(w http.ResponseWriter, r *http.Request)
+}
+
+// DictionariesAPI — справочники видов проблем и типов оборудования: CRUD для
+// ADMIN и чтение для USER/ADMIN (Б7).
+type DictionariesAPI interface {
+	ListProblemTypes(w http.ResponseWriter, r *http.Request)
+	CreateProblemType(w http.ResponseWriter, r *http.Request)
+	UpdateProblemType(w http.ResponseWriter, r *http.Request)
+	DeleteProblemType(w http.ResponseWriter, r *http.Request)
+	ListEquipmentTypes(w http.ResponseWriter, r *http.Request)
+	CreateEquipmentType(w http.ResponseWriter, r *http.Request)
+	UpdateEquipmentType(w http.ResponseWriter, r *http.Request)
+	DeleteEquipmentType(w http.ResponseWriter, r *http.Request)
+	PublicProblemTypes(w http.ResponseWriter, r *http.Request)
+}
+
 // Deps — зависимости HTTP-слоя. Передаются из main, чтобы сервер не создавал
 // подключения сам и оставался тестируемым.
 type Deps struct {
@@ -105,6 +147,13 @@ type Deps struct {
 	// Доменные handler'ы Б5; при nil маршруты заявок остаются заглушками 501.
 	TicketsHandler       TicketsAPI
 	PublicTicketsHandler PublicTicketsAPI
+
+	// KBHandler — база знаний (Б6). nil — маршруты БЗ остаются заглушками 501.
+	KBHandler KBAPI
+
+	// Б7: настройки/праздники и справочники. nil — маршруты отдают 501.
+	SettingsHandler     SettingsAPI
+	DictionariesHandler DictionariesAPI
 }
 
 // Server — собранный HTTP-сервер.
