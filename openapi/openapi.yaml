@@ -342,43 +342,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
-  /api/public/files:
-    post:
-      tags: [Files]
-      operationId: uploadPublicFile
-      summary: Загрузка файла анонимом по токену заявки
-      description: |
-        Б3 / TICKET-13: загрузка вложения для публичного комментария по токену заявки.
-        Проверки magic bytes, лимиты и выдача — как в `POST /api/files`.
-        Маршрут реализуется доменом файлов (Б3); до мержа отвечает `501`.
-      parameters:
-        - name: token
-          in: query
-          required: true
-          description: Токен анонимной заявки.
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file, scope]
-              properties:
-                file: {type: string, format: binary}
-                scope: {type: string, enum: [ticket]}
-      responses:
-        '201':
-          $ref: '#/components/responses/CreatedFile'
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '422': {$ref: '#/components/responses/ValidationError'}
-        '429': {$ref: '#/components/responses/TooManyRequests'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/kb/tree:
     get:
       tags: [Public]
@@ -433,8 +396,16 @@ paths:
           explode: true
         - name: executor_id
           in: query
-          description: Исполнитель.
-          schema: {type: integer, format: int64, minimum: 1}
+          description: |
+            Исполнитель. Сентинел `none` — только заявки без исполнителя (Ф2,
+            `executor_id IS NULL`).
+          schema:
+            oneOf:
+              - type: integer
+                format: int64
+                minimum: 1
+              - type: string
+                enum: [none]
         - name: problem_type_id
           in: query
           description: Вид проблемы.
