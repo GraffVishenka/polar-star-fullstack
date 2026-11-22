@@ -11,6 +11,7 @@ import { RequireAuth, RequireRole } from '@/auth/guards';
 import { AdminLayout } from '@/layouts/AdminLayout';
 import { AppLayout } from '@/layouts/AppLayout';
 import { ChangePasswordPage } from '@/pages/auth/ChangePasswordPage';
+import { EquipmentPage } from '@/pages/equipment/EquipmentPage';
 import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
 import { TicketsPage } from '@/pages/tickets/TicketsPage';
 
@@ -63,10 +64,7 @@ export const appRoutes: RouteObject = {
       path: 'kb',
       element: <PlaceholderPage title="База знаний" block="Ф3" owner="fe-2" />,
     },
-    {
-      path: 'equipment',
-      element: <PlaceholderPage title="Оборудование" block="Ф4" owner="fe-3" />,
-    },
+    { path: 'equipment', element: <EquipmentPage /> },
     {
       path: 'stats',
       element: <PlaceholderPage title="Моя статистика" block="Ф10" owner="fe-3" />,

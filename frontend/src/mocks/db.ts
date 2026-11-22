@@ -698,6 +698,9 @@ function seedEquipment(): { warehouses: MockWarehouse[]; equipment: MockEquipmen
     { id: 2, building_id: 1, name: 'Склад ИТ', created_at: isoDaysAgo(300) },
     { id: 3, building_id: 2, name: 'Цех А', created_at: isoDaysAgo(280) },
     { id: 4, building_id: 3, name: 'Основной склад', created_at: isoDaysAgo(270) },
+    // EQ-1/EQ-3: у деактивированного здания (id 4) остаётся склад — он нужен
+    // в истории/фильтрах, а перемещение в него доступно только ADMIN.
+    { id: 5, building_id: 4, name: 'Архив', created_at: isoDaysAgo(600) },
   ];
 
   const equipment: MockEquipment[] = [
@@ -781,6 +784,18 @@ function seedEquipment(): { warehouses: MockWarehouse[]; equipment: MockEquipmen
       created_at: isoDaysAgo(130),
       deleted_at: null,
     },
+    // EQ-1: единица в деактивированном здании — остаётся в списках и истории,
+    // бейдж «Неактивно» и запрет перемещения внутрь для USER проверяются на ней.
+    {
+      id: 9,
+      name: 'Сервер HP ProLiant',
+      equipment_type_id: 1,
+      serial_number: 'HP-SRV-01',
+      registration_number: 'INV-1009',
+      warehouse_id: 5,
+      created_at: isoDaysAgo(500),
+      deleted_at: null,
+    },
   ];
 
   return { warehouses, equipment };
@@ -805,6 +820,16 @@ function seedMovements(): MockMovement[] {
       moved_by_user_id: 1,
       moved_at: isoDaysAgo(10, 14),
       comment: null,
+    },
+    // Журнал хранит перемещение в деактивированное здание (EQ-5/EQ-6).
+    {
+      id: 3,
+      equipment_id: 9,
+      from_warehouse_id: 2,
+      to_warehouse_id: 5,
+      moved_by_user_id: 1,
+      moved_at: isoDaysAgo(60, 10),
+      comment: 'Выведен из эксплуатации, перенесён в архив',
     },
   ];
 }
