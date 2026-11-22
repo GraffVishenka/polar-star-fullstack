@@ -19,8 +19,10 @@ import (
 	_ "time/tzdata"
 
 	"github.com/graffvishenka/polar-star-service/backend/internal/auth"
+	"github.com/graffvishenka/polar-star-service/backend/internal/buildings"
 	"github.com/graffvishenka/polar-star-service/backend/internal/config"
 	"github.com/graffvishenka/polar-star-service/backend/internal/db"
+	"github.com/graffvishenka/polar-star-service/backend/internal/equipment"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 	"github.com/graffvishenka/polar-star-service/backend/internal/users"
@@ -139,17 +141,25 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	usersService := users.NewService(usersRepository, repository, users.NewMySQLTicketResolver(pool), logger)
 	usersHandler := users.NewHandler(usersService, logger)
 
+	// Б4: здания, склады, оборудование и журнал перемещений (EQ-1..EQ-7).
+	buildingsHandler := buildings.NewHandler(
+		buildings.NewService(buildings.NewMySQLRepository(pool)), logger)
+	equipmentHandler := equipment.NewHandler(
+		equipment.NewService(equipment.NewMySQLRepository(pool)), logger)
+
 	httpServer := httpserver.New(httpserver.Deps{
-		Config:        cfg,
-		Logger:        logger,
-		DB:            pool,
-		Clock:         clock,
-		Calendar:      calendar,
-		Notifier:      notifier,
-		AuthService:   authService,
-		AuthHandler:   authHandler,
-		Authenticator: authenticator,
-		UsersHandler:  usersHandler,
+		Config:           cfg,
+		Logger:           logger,
+		DB:               pool,
+		Clock:            clock,
+		Calendar:         calendar,
+		Notifier:         notifier,
+		AuthService:      authService,
+		AuthHandler:      authHandler,
+		Authenticator:    authenticator,
+		UsersHandler:     usersHandler,
+		BuildingsHandler: buildingsHandler,
+		EquipmentHandler: equipmentHandler,
 	})
 
 	server := &http.Server{

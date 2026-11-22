@@ -124,14 +124,14 @@ func newB4Env(t *testing.T, users ...*auth.User) (*testEnv, http.Handler) {
 	})
 
 	server := httpserver.New(httpserver.Deps{
-		Config:        &config.Config{Version: "test", Location: time.UTC, CORSOrigins: []string{"http://localhost:5173"}},
-		Logger:        logger,
-		Clock:         clock,
-		AuthService:   service,
-		AuthHandler:   auth.NewHandler(service, logger, false),
-		Authenticator: auth.NewAuthenticator(env.repo, tokens),
-		Buildings:     buildings.NewHandler(buildings.NewService(stubBuildingsRepo{}), logger),
-		Equipment:     equipment.NewHandler(equipment.NewService(stubEquipmentRepo{}), logger),
+		Config:           &config.Config{Version: "test", Location: time.UTC, CORSOrigins: []string{"http://localhost:5173"}},
+		Logger:           logger,
+		Clock:            clock,
+		AuthService:      service,
+		AuthHandler:      auth.NewHandler(service, logger, false),
+		Authenticator:    auth.NewAuthenticator(env.repo, tokens),
+		BuildingsHandler: buildings.NewHandler(buildings.NewService(stubBuildingsRepo{}), logger),
+		EquipmentHandler: equipment.NewHandler(equipment.NewService(stubEquipmentRepo{}), logger),
 	})
 	return env, server.Handler()
 }
