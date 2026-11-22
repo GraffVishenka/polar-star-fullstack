@@ -131,20 +131,36 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 	r.Get("/stats/me", s.notImplemented)
 	r.Get("/stats/export.xlsx", s.notImplemented)
 
-	// Здания и склады: чтение всем авторизованным (EQ-1, EQ-7).
-	r.Get("/buildings", s.notImplemented)
-	r.Get("/warehouses", s.notImplemented)
+	// Здания и склады: чтение всем авторизованным (EQ-1, EQ-7, Б4).
+	if bh := s.deps.BuildingsHandler; bh != nil {
+		r.Get("/buildings", bh.ListBuildings)
+		r.Get("/warehouses", bh.ListWarehouses)
+	} else {
+		r.Get("/buildings", s.notImplemented)
+		r.Get("/warehouses", s.notImplemented)
+	}
 
 	// Оборудование (Б4/Б12).
-	r.Get("/equipment", s.notImplemented)
-	r.Post("/equipment", s.notImplemented)
-	// Статический сегмент регистрируется до параметра {id}, чтобы не было
-	// неоднозначности при разборе пути.
-	r.Post("/equipment/bulk-move", s.notImplemented)
-	r.Get("/equipment/{id}", s.notImplemented)
-	r.Patch("/equipment/{id}", s.notImplemented)
-	r.Post("/equipment/{id}/move", s.notImplemented)
-	r.Get("/equipment/{id}/movements", s.notImplemented)
+	if eh := s.deps.EquipmentHandler; eh != nil {
+		r.Get("/equipment", eh.List)
+		r.Post("/equipment", eh.Create)
+		// Статический сегмент регистрируется до параметра {id}, чтобы не было
+		// неоднозначности при разборе пути. Массовое перемещение — Б12.
+		r.Post("/equipment/bulk-move", s.notImplemented)
+		r.Get("/equipment/{id}", eh.Get)
+		r.Patch("/equipment/{id}", eh.Update)
+		r.Post("/equipment/{id}/move", eh.Move)
+		r.Get("/equipment/{id}/movements", eh.Movements)
+	} else {
+		r.Get("/equipment", s.notImplemented)
+		r.Post("/equipment", s.notImplemented)
+		r.Post("/equipment/bulk-move", s.notImplemented)
+		r.Get("/equipment/{id}", s.notImplemented)
+		r.Patch("/equipment/{id}", s.notImplemented)
+		r.Post("/equipment/{id}/move", s.notImplemented)
+		r.Get("/equipment/{id}/movements", s.notImplemented)
+	}
+	// Ведомость помещения (EQ-8) — блок Б6/Б10.
 	r.Get("/warehouses/{id}/inventory.xlsx", s.notImplemented)
 
 	// Push (Б8).
@@ -167,16 +183,29 @@ func (s *Server) adminRoutes(r chi.Router) { // Заявки: удаление �
 	r.Patch("/admin/users/{id}", s.usersUpdate)
 	r.Post("/admin/users/{id}/password", s.usersResetPassword)
 
-	// Здания и склады: запись/деактивация — ADMIN (EQ-6).
-	r.Post("/buildings", s.notImplemented)
-	r.Patch("/buildings/{id}", s.notImplemented)
-	r.Delete("/buildings/{id}", s.notImplemented)
-	r.Post("/warehouses", s.notImplemented)
-	r.Patch("/warehouses/{id}", s.notImplemented)
-	r.Delete("/warehouses/{id}", s.notImplemented)
+	// Здания и склады: запись/деактивация — ADMIN (EQ-6, Б4).
+	if bh := s.deps.BuildingsHandler; bh != nil {
+		r.Post("/buildings", bh.CreateBuilding)
+		r.Patch("/buildings/{id}", bh.UpdateBuilding)
+		r.Delete("/buildings/{id}", bh.DeleteBuilding)
+		r.Post("/warehouses", bh.CreateWarehouse)
+		r.Patch("/warehouses/{id}", bh.UpdateWarehouse)
+		r.Delete("/warehouses/{id}", bh.DeleteWarehouse)
+	} else {
+		r.Post("/buildings", s.notImplemented)
+		r.Patch("/buildings/{id}", s.notImplemented)
+		r.Delete("/buildings/{id}", s.notImplemented)
+		r.Post("/warehouses", s.notImplemented)
+		r.Patch("/warehouses/{id}", s.notImplemented)
+		r.Delete("/warehouses/{id}", s.notImplemented)
+	}
 
-	// Оборудование: удаление — ADMIN (EQ-6).
-	r.Delete("/equipment/{id}", s.notImplemented)
+	// Оборудование: удаление — ADMIN (EQ-6, Б4).
+	if eh := s.deps.EquipmentHandler; eh != nil {
+		r.Delete("/equipment/{id}", eh.Delete)
+	} else {
+		r.Delete("/equipment/{id}", s.notImplemented)
+	}
 
 	// Настройки и справочники (Б7).
 	r.Get("/admin/settings", s.notImplemented)

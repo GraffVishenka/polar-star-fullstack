@@ -1,5 +1,5 @@
-// Команда api — точка входа backend'а: конфигурация, миграции, сидинг,
-// HTTP-сервер и фоновые воркеры (NFR-4, NFR-5).
+// РљРѕРјР°РЅРґР° api вЂ” С‚РѕС‡РєР° РІС…РѕРґР° backend'Р°: РєРѕРЅС„РёРіСѓСЂР°С†РёСЏ, РјРёРіСЂР°С†РёРё, СЃРёРґРёРЅРі,
+// HTTP-СЃРµСЂРІРµСЂ Рё С„РѕРЅРѕРІС‹Рµ РІРѕСЂРєРµСЂС‹ (NFR-4, NFR-5).
 package main
 
 import (
@@ -14,13 +14,15 @@ import (
 	"syscall"
 	"time"
 
-	// Встроенная база IANA-поясов: CAL-2 не должен зависеть от наличия tzdata
-	// в контейнере (образ alpine ставит tzdata, но это гарантия и для distroless).
+	// Р’СЃС‚СЂРѕРµРЅРЅР°СЏ Р±Р°Р·Р° IANA-РїРѕСЏСЃРѕРІ: CAL-2 РЅРµ РґРѕР»Р¶РµРЅ Р·Р°РІРёСЃРµС‚СЊ РѕС‚ РЅР°Р»РёС‡РёСЏ tzdata
+	// РІ РєРѕРЅС‚РµР№РЅРµСЂРµ (РѕР±СЂР°Р· alpine СЃС‚Р°РІРёС‚ tzdata, РЅРѕ СЌС‚Рѕ РіР°СЂР°РЅС‚РёСЏ Рё РґР»СЏ distroless).
 	_ "time/tzdata"
 
 	"github.com/graffvishenka/polar-star-service/backend/internal/auth"
+	"github.com/graffvishenka/polar-star-service/backend/internal/buildings"
 	"github.com/graffvishenka/polar-star-service/backend/internal/config"
 	"github.com/graffvishenka/polar-star-service/backend/internal/db"
+	"github.com/graffvishenka/polar-star-service/backend/internal/equipment"
 	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
@@ -34,15 +36,15 @@ func main() {
 	}
 }
 
-// run — общий сценарий запуска с поддержкой подкоманд migrate/seed/version.
+// run вЂ” РѕР±С‰РёР№ СЃС†РµРЅР°СЂРёР№ Р·Р°РїСѓСЃРєР° СЃ РїРѕРґРґРµСЂР¶РєРѕР№ РїРѕРґРєРѕРјР°РЅРґ migrate/seed/version.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("конфигурация: %w", err)
+		return fmt.Errorf("РєРѕРЅС„РёРіСѓСЂР°С†РёСЏ: %w", err)
 	}
 	logger := newLogger(cfg)
 	slog.SetDefault(logger)
-	logger.Info("api: запуск",
+	logger.Info("api: Р·Р°РїСѓСЃРє",
 		"env", cfg.AppEnv, "version", cfg.Version,
 		"timezone", cfg.Timezone, "addr", cfg.HTTPAddr)
 
@@ -65,11 +67,11 @@ func run() error {
 		fmt.Println(cfg.Version)
 		return nil
 	default:
-		return fmt.Errorf("неизвестная команда %q (ожидается serve|migrate|seed|version)", command)
+		return fmt.Errorf("РЅРµРёР·РІРµСЃС‚РЅР°СЏ РєРѕРјР°РЅРґР° %q (РѕР¶РёРґР°РµС‚СЃСЏ serve|migrate|seed|version)", command)
 	}
 }
 
-// runMigrateAndSeed применяет миграции и идемпотентный сидинг (make seed).
+// runMigrateAndSeed РїСЂРёРјРµРЅСЏРµС‚ РјРёРіСЂР°С†РёРё Рё РёРґРµРјРїРѕС‚РµРЅС‚РЅС‹Р№ СЃРёРґРёРЅРі (make seed).
 func runMigrateAndSeed(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	if err := db.Migrate(ctx, cfg.DSN(true), logger); err != nil {
 		return err
@@ -87,13 +89,13 @@ func runMigrateAndSeed(ctx context.Context, cfg *config.Config, logger *slog.Log
 	})
 }
 
-// runServer поднимает API и воркеры, применяет миграции/сидинг при старте.
+// runServer РїРѕРґРЅРёРјР°РµС‚ API Рё РІРѕСЂРєРµСЂС‹, РїСЂРёРјРµРЅСЏРµС‚ РјРёРіСЂР°С†РёРё/СЃРёРґРёРЅРі РїСЂРё СЃС‚Р°СЂС‚Рµ.
 func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	if err := cfg.ValidateAddr(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(cfg.UploadDir, 0o750); err != nil {
-		return fmt.Errorf("каталог загрузок %q: %w", cfg.UploadDir, err)
+		return fmt.Errorf("РєР°С‚Р°Р»РѕРі Р·Р°РіСЂСѓР·РѕРє %q: %w", cfg.UploadDir, err)
 	}
 
 	pool, err := db.Open(ctx, cfg.DSN(false), cfg.DBMaxOpenConns, cfg.DBMaxIdleConns, cfg.DBConnMaxLifetime)
@@ -102,7 +104,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	}
 	defer func() { _ = pool.Close() }()
 
-	// MySQL в docker-compose может стартовать дольше API.
+	// MySQL РІ docker-compose РјРѕР¶РµС‚ СЃС‚Р°СЂС‚РѕРІР°С‚СЊ РґРѕР»СЊС€Рµ API.
 	if err := db.WaitReady(ctx, pool, 90*time.Second, logger); err != nil {
 		return err
 	}
@@ -117,9 +119,9 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		return err
 	}
 
-	// Платформенные зависимости: реальные часы, календарь по умолчанию (маска
-	// Пн–Сб, без праздников), заглушка Notifier до Б8. Б7 заменит календарь на
-	// настройки из БД через тот же интерфейс.
+	// РџР»Р°С‚С„РѕСЂРјРµРЅРЅС‹Рµ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё: СЂРµР°Р»СЊРЅС‹Рµ С‡Р°СЃС‹, РєР°Р»РµРЅРґР°СЂСЊ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ (РјР°СЃРєР°
+	// РџРЅвЂ“РЎР±, Р±РµР· РїСЂР°Р·РґРЅРёРєРѕРІ), Р·Р°РіР»СѓС€РєР° Notifier РґРѕ Р‘8. Р‘7 Р·Р°РјРµРЅРёС‚ РєР°Р»РµРЅРґР°СЂСЊ РЅР°
+	// РЅР°СЃС‚СЂРѕР№РєРё РёР· Р‘Р” С‡РµСЂРµР· С‚РѕС‚ Р¶Рµ РёРЅС‚РµСЂС„РµР№СЃ.
 	clock := platform.RealClock{}
 	calendar := platform.NewDefaultCalendar(cfg.Location, platform.DefaultWorkdays(), nil, clock)
 	notifier := &platform.LogNotifier{Logger: logger}
@@ -128,20 +130,20 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTokenTTL, clock)
 	authService := auth.NewService(repository, tokenManager, clock, logger, auth.Options{
 		RefreshTTL:  cfg.RefreshTokenTTL,
-		LoginLimit:  10, // AUTH-3: 10 неудачных входов на login+IP за 10 минут
+		LoginLimit:  10, // AUTH-3: 10 РЅРµСѓРґР°С‡РЅС‹С… РІС…РѕРґРѕРІ РЅР° login+IP Р·Р° 10 РјРёРЅСѓС‚
 		LoginWindow: 10 * time.Minute,
 	})
 	authHandler := auth.NewHandler(authService, logger, cfg.IsProduction())
 	authenticator := auth.NewAuthenticator(repository, tokenManager)
 
-	// Б2: пользователи, роли и здание пользователя. Отзыв сессий при
-	// блокировке/сбросе пароля использует тот же auth.Repository.
+	// Р‘2: РїРѕР»СЊР·РѕРІР°С‚РµР»Рё, СЂРѕР»Рё Рё Р·РґР°РЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ. РћС‚Р·С‹РІ СЃРµСЃСЃРёР№ РїСЂРё
+	// Р±Р»РѕРєРёСЂРѕРІРєРµ/СЃР±СЂРѕСЃРµ РїР°СЂРѕР»СЏ РёСЃРїРѕР»СЊР·СѓРµС‚ С‚РѕС‚ Р¶Рµ auth.Repository.
 	usersRepository := users.NewMySQLRepository(pool)
 	usersService := users.NewService(usersRepository, repository, users.NewMySQLTicketResolver(pool), logger)
 	usersHandler := users.NewHandler(usersService, logger)
 
-	// Б3: файлы и медиа — локальный диск (UPLOAD_DIR), метаданные в MySQL,
-	// определение MIME по сигнатуре и лимиты 10 МБ/200 МБ.
+	// Р‘3: С„Р°Р№Р»С‹ Рё РјРµРґРёР° вЂ” Р»РѕРєР°Р»СЊРЅС‹Р№ РґРёСЃРє (UPLOAD_DIR), РјРµС‚Р°РґР°РЅРЅС‹Рµ РІ MySQL,
+	// РѕРїСЂРµРґРµР»РµРЅРёРµ MIME РїРѕ СЃРёРіРЅР°С‚СѓСЂРµ Рё Р»РёРјРёС‚С‹ 10 РњР‘/200 РњР‘.
 	filesRepo := files.NewMySQLRepository(pool)
 	filesStore := files.NewStorage(cfg.UploadDir, cfg.Location, clock)
 	filesService := files.NewService(filesRepo, filesStore, files.Options{
@@ -151,30 +153,38 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	})
 	filesHandler := files.NewHandler(filesService, logger)
 
+	// Р‘4: Р·РґР°РЅРёСЏ, СЃРєР»Р°РґС‹, РѕР±РѕСЂСѓРґРѕРІР°РЅРёРµ Рё Р¶СѓСЂРЅР°Р» РїРµСЂРµРјРµС‰РµРЅРёР№ (EQ-1..EQ-7).
+	buildingsHandler := buildings.NewHandler(
+		buildings.NewService(buildings.NewMySQLRepository(pool)), logger)
+	equipmentHandler := equipment.NewHandler(
+		equipment.NewService(equipment.NewMySQLRepository(pool)), logger)
+
 	httpServer := httpserver.New(httpserver.Deps{
-		Config:        cfg,
-		Logger:        logger,
-		DB:            pool,
-		Clock:         clock,
-		Calendar:      calendar,
-		Notifier:      notifier,
-		AuthService:   authService,
-		AuthHandler:   authHandler,
-		Authenticator: authenticator,
-		UsersHandler:  usersHandler,
-		FilesHandler:  filesHandler,
+		Config:           cfg,
+		Logger:           logger,
+		DB:               pool,
+		Clock:            clock,
+		Calendar:         calendar,
+		Notifier:         notifier,
+		AuthService:      authService,
+		AuthHandler:      authHandler,
+		Authenticator:    authenticator,
+		UsersHandler:     usersHandler,
+		FilesHandler:     filesHandler,
+		BuildingsHandler: buildingsHandler,
+		EquipmentHandler: equipmentHandler,
 	})
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           httpServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		// ReadTimeout/WriteTimeout не задаются: выгрузка видео до 200 МБ (Б3).
+		// ReadTimeout/WriteTimeout РЅРµ Р·Р°РґР°СЋС‚СЃСЏ: РІС‹РіСЂСѓР·РєР° РІРёРґРµРѕ РґРѕ 200 РњР‘ (Р‘3).
 		IdleTimeout: 120 * time.Second,
 	}
 
-	// Воркеры-заглушки (outbox, напоминания, автоочистка) отключаются вместе с
-	// контекстом; реальные реализации появятся в Б8/Б10.
+	// Р’РѕСЂРєРµСЂС‹-Р·Р°РіР»СѓС€РєРё (outbox, РЅР°РїРѕРјРёРЅР°РЅРёСЏ, Р°РІС‚РѕРѕС‡РёСЃС‚РєР°) РѕС‚РєР»СЋС‡Р°СЋС‚СЃСЏ РІРјРµСЃС‚Рµ СЃ
+	// РєРѕРЅС‚РµРєСЃС‚РѕРј; СЂРµР°Р»СЊРЅС‹Рµ СЂРµР°Р»РёР·Р°С†РёРё РїРѕСЏРІСЏС‚СЃСЏ РІ Р‘8/Р‘10.
 	workerCtx, stopWorkers := context.WithCancel(ctx)
 	workers := startWorkers(workerCtx, logger, calendar)
 	defer func() {
@@ -182,22 +192,22 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		workers.Wait()
 	}()
 
-	// Б3: раз в час удаляются файлы без привязки (linked_at IS NULL) старше
-	// 24 часов; ошибки очистки только логируются и не влияют на API.
+	// Р‘3: СЂР°Р· РІ С‡Р°СЃ СѓРґР°Р»СЏСЋС‚СЃСЏ С„Р°Р№Р»С‹ Р±РµР· РїСЂРёРІСЏР·РєРё (linked_at IS NULL) СЃС‚Р°СЂС€Рµ
+	// 24 С‡Р°СЃРѕРІ; РѕС€РёР±РєРё РѕС‡РёСЃС‚РєРё С‚РѕР»СЊРєРѕ Р»РѕРіРёСЂСѓСЋС‚СЃСЏ Рё РЅРµ РІР»РёСЏСЋС‚ РЅР° API.
 	go files.NewCleaner(filesRepo, filesStore, logger, clock, files.CleanerOptions{}).Run(workerCtx)
 
 	serveErr := make(chan error, 1)
 	go func() {
-		logger.Info("api: HTTP-сервер слушает", "addr", cfg.HTTPAddr)
+		logger.Info("api: HTTP-СЃРµСЂРІРµСЂ СЃР»СѓС€Р°РµС‚", "addr", cfg.HTTPAddr)
 		serveErr <- server.ListenAndServe()
 	}()
 
 	select {
 	case <-ctx.Done():
-		logger.Info("api: получен сигнал остановки")
+		logger.Info("api: РїРѕР»СѓС‡РµРЅ СЃРёРіРЅР°Р» РѕСЃС‚Р°РЅРѕРІРєРё")
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("api: HTTP-сервер: %w", err)
+			return fmt.Errorf("api: HTTP-СЃРµСЂРІРµСЂ: %w", err)
 		}
 		return nil
 	}
@@ -207,11 +217,11 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("api: graceful shutdown: %w", err)
 	}
-	logger.Info("api: остановлен")
+	logger.Info("api: РѕСЃС‚Р°РЅРѕРІР»РµРЅ")
 	return nil
 }
 
-// newLogger — JSON-логи в stdout с уровнем из LOG_LEVEL (NFR-4).
+// newLogger вЂ” JSON-Р»РѕРіРё РІ stdout СЃ СѓСЂРѕРІРЅРµРј РёР· LOG_LEVEL (NFR-4).
 func newLogger(cfg *config.Config) *slog.Logger {
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
 	return slog.New(handler).With("service", "polar-star-api", "env", cfg.AppEnv)
