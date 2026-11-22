@@ -1,0 +1,42 @@
+# Секреты и окружение
+.env
+.env.*
+!.env.example
+*.local
+
+# Артефакты сборки
+bin/
+dist/
+build/
+*.exe
+*.test
+coverage.out
+coverage/
+
+# Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+
+# Go
+backend/vendor/
+*.log
+
+# Медиа и данные
+data/
+uploads/
+.tools/
+*.zip
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Прочее
+tmp/
+*.tmp
