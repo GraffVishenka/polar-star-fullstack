@@ -15,6 +15,7 @@ import { AdminBuildingsPage } from '@/pages/admin/buildings/AdminBuildingsPage';
 import { AdminKbPage } from '@/pages/admin/kb/AdminKbPage';
 import { AdminTrashPage } from '@/pages/admin/trash/AdminTrashPage';
 import { EquipmentPage } from '@/pages/equipment/EquipmentPage';
+import { KbPage } from '@/pages/kb/KbPage';
 import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
 import { TicketsPage } from '@/pages/tickets/TicketsPage';
 
@@ -67,10 +68,9 @@ export const appRoutes: RouteObject = {
   children: [
     { path: 'tickets', element: <TicketsPage /> },
     { path: 'change-password', element: <ChangePasswordPage /> },
-    {
-      path: 'kb',
-      element: <PlaceholderPage title="База знаний" block="Ф3" owner="fe-2" />,
-    },
+    // Ф3 (fe-2): дерево + статья; выбранный раздел — отдельный адрес.
+    { path: 'kb', element: <KbPage /> },
+    { path: 'kb/:nodeId', element: <KbPage /> },
     { path: 'equipment', element: <EquipmentPage /> },
     {
       path: 'stats',

@@ -5,9 +5,11 @@ import {
   addWorkdays,
   appToday,
   db,
+  fileMeta,
   isKbNodeHidden,
   nextId,
   statusMeta,
+  ticketComments,
   toKbNode,
   toKbTree,
   toPublicBuilding,
@@ -21,6 +23,7 @@ import {
   fileResponse,
   json,
   notFound,
+  paginate,
   pathId,
   placeholderSvg,
   readBody,
@@ -75,6 +78,9 @@ export const publicHandlers = [
       .map(toPublicBuilding);
     return json(buildings);
   }),
+
+  // TICKET-4: справочник видов проблем для публичной формы (аддитивно к §3.13).
+  http.get(`${API}/public/problem-types`, () => json(db.problemTypes)),
 
   // TICKET-5: с building_id — дашборд здания, без него — сводка «Все здания».
   http.get(`${API}/public/tickets`, ({ request }) => {
@@ -178,6 +184,66 @@ export const publicHandlers = [
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       `ticket_${ticket.id}.docx`,
     );
+  }),
+
+  // TICKET-14: комментарии по токену, 50 на страницу (аддитивный GET).
+  http.get(`${API}/public/tickets/:token/comments`, ({ params, request }) => {
+    const ticket = findTicketByToken(String(params.token));
+    if (!ticket) return notFound('Заявка не найдена');
+
+    const url = new URL(request.url);
+    const page = Number(url.searchParams.get('page') ?? '1') || 1;
+    const size = Number(url.searchParams.get('size') ?? '50') || 50;
+    return json(paginate(ticketComments(ticket.id), page, Math.min(size, 50)));
+  }),
+
+  // PUB-6: вложение анонима к комментарию (аддитивный multipart-эндпоинт).
+  http.post(`${API}/public/tickets/:token/files`, async ({ params, request }) => {
+    const ticket = findTicketByToken(String(params.token));
+    if (!ticket) return notFound('Заявка не найдена');
+
+    let form: FormData;
+    try {
+      // В браузере MSW-воркер парсит multipart нативно (в jsdom — нет, тесты
+      // подменяют загрузчик, как и в Ф2).
+      form = await request.formData();
+    } catch {
+      return validation('Ожидается multipart/form-data');
+    }
+
+    const file = form.get('file');
+    if (!(file instanceof Blob)) return validation('Файл не передан');
+
+    const contentType = file.type || 'application/octet-stream';
+    const isImage = contentType.startsWith('image/');
+    const isVideo = contentType.startsWith('video/');
+    if (!isImage && !isVideo) {
+      return fail(415, 'UNSUPPORTED_MEDIA_TYPE', 'Можно загружать только фото и видео');
+    }
+    if (file.size > (isImage ? 10 * 1024 * 1024 : 200 * 1024 * 1024)) {
+      return fail(413, 'PAYLOAD_TOO_LARGE', isImage ? 'Фото больше 10 МБ' : 'Видео больше 200 МБ');
+    }
+
+    const filename =
+      typeof (file as File).name === 'string' && (file as File).name
+        ? (file as File).name
+        : isImage
+          ? 'photo.jpg'
+          : 'video.mp4';
+
+    const stored = {
+      id: nextId(db.files),
+      filename,
+      content_type: contentType,
+      size_bytes: file.size,
+      media_kind: isImage ? ('image' as const) : ('video' as const),
+      created_at: new Date().toISOString(),
+      scope: 'ticket' as const,
+      ticket_id: ticket.id,
+      token: ticket.access_token,
+    };
+    db.files.push(stored);
+    return json({ file: fileMeta(stored) }, 201);
   }),
 
   // TICKET-14: комментарий анонима по токену, до 5 вложений.

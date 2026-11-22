@@ -1,8 +1,12 @@
 /** Публичный периметр (§3.11, §3.13): доступен без авторизации. */
-import { apiRequest } from './client';
+import { apiRequest, buildUrl } from './client';
+import { uploadFileToEndpoint } from './upload';
 import type {
+  FileMeta,
   KbNode,
   KbTreeNode,
+  Page,
+  ProblemType,
   PublicBuilding,
   PublicCommentCreateRequest,
   PublicTicket,
@@ -61,6 +65,54 @@ export function createPublicComment(
 /** DOC-1: Word-выгрузка анонимной заявки по токену. */
 export function publicTicketExportPath(token: string): string {
   return `/public/tickets/${encodeURIComponent(token)}/export.docx`;
+}
+
+/** Готовый путь карточки по токену (TICKET-13). */
+export function publicTicketPath(token: string): string {
+  return `/t/${token}`;
+}
+
+/**
+ * Виды проблем для публичной формы (TICKET-4).
+ *
+ * Контракт §3.13 не отдаёт справочник анониму, а `problem_type_id` обязателен
+ * (TICKET-2). MSW реализует `GET /api/public/problem-types`; это аддитивное
+ * расширение — при фиксации `openapi.yaml` согласовать с lead/be.
+ */
+export function fetchPublicProblemTypes(): Promise<ProblemType[]> {
+  return apiRequest<ProblemType[]>('/public/problem-types', { skipAuth: true });
+}
+
+/**
+ * Комментарии по токену с серверной пагинацией (TICKET-14: 50 на страницу).
+ * Аддитивный `GET /api/public/tickets/{token}/comments` — в контракте §3.13
+ * был только POST; нужен, чтобы не отдавать весь список в карточке.
+ */
+export function fetchPublicComments(
+  token: string,
+  params: { page?: number; size?: number } = {},
+): Promise<Page<TicketComment>> {
+  return apiRequest<Page<TicketComment>>(`/public/tickets/${encodeURIComponent(token)}/comments`, {
+    skipAuth: true,
+    query: params,
+  });
+}
+
+/**
+ * Вложение анонима к комментарию (PUB-6): до 5 файлов, фото/видео.
+ * Аддитивный `POST /api/public/tickets/{token}/files` — `POST /api/files`
+ * доступен только USER/ADMIN (Б3), у анонима аккаунта нет.
+ */
+export function uploadPublicCommentFile(
+  token: string,
+  file: File,
+  options: { onProgress?: (percent: number) => void; signal?: AbortSignal } = {},
+): Promise<FileMeta> {
+  return uploadFileToEndpoint(
+    buildUrl(`/public/tickets/${encodeURIComponent(token)}/files`),
+    file,
+    { withAuth: false, onProgress: options.onProgress, signal: options.signal },
+  );
 }
 
 /** БЗ-7: публичное дерево без скрытых корневых разделов. */

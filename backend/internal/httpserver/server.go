@@ -36,8 +36,6 @@ type UsersAPI interface {
 
 // BuildingsAPI — здания и склады: чтение всем авторизованным, запись,
 // деактивация и физическое удаление — ADMIN (Б4, EQ-1, EQ-6).
-// Интерфейс объявлен здесь по той же причине, что и UsersAPI: httpserver не
-// зависит от internal/buildings и тестируется без БД.
 type BuildingsAPI interface {
 	ListBuildings(w http.ResponseWriter, r *http.Request)
 	CreateBuilding(w http.ResponseWriter, r *http.Request)
@@ -61,6 +59,27 @@ type EquipmentAPI interface {
 	Movements(w http.ResponseWriter, r *http.Request)
 }
 
+// TicketsAPI — авторизованные операции с заявками (Б5).
+type TicketsAPI interface {
+	List(w http.ResponseWriter, r *http.Request)
+	Create(w http.ResponseWriter, r *http.Request)
+	Get(w http.ResponseWriter, r *http.Request)
+	Update(w http.ResponseWriter, r *http.Request)
+	Delete(w http.ResponseWriter, r *http.Request)
+	ListComments(w http.ResponseWriter, r *http.Request)
+	CreateComment(w http.ResponseWriter, r *http.Request)
+}
+
+// PublicTicketsAPI — публичный периметр заявок (Б5).
+type PublicTicketsAPI interface {
+	PublicBuildings(w http.ResponseWriter, r *http.Request)
+	PublicList(w http.ResponseWriter, r *http.Request)
+	PublicCreate(w http.ResponseWriter, r *http.Request)
+	PublicGet(w http.ResponseWriter, r *http.Request)
+	PublicComments(w http.ResponseWriter, r *http.Request)
+	PublicAddComment(w http.ResponseWriter, r *http.Request)
+}
+
 // Deps — зависимости HTTP-слоя. Передаются из main, чтобы сервер не создавал
 // подключения сам и оставался тестируемым.
 type Deps struct {
@@ -82,6 +101,10 @@ type Deps struct {
 	// соответствующие маршруты остаются заглушками 501.
 	BuildingsHandler BuildingsAPI
 	EquipmentHandler EquipmentAPI
+
+	// Доменные handler'ы Б5; при nil маршруты заявок остаются заглушками 501.
+	TicketsHandler       TicketsAPI
+	PublicTicketsHandler PublicTicketsAPI
 }
 
 // Server — собранный HTTP-сервер.

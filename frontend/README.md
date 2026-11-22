@@ -75,13 +75,14 @@ src/
 | Маршрут                                   | Доступ                     | Состояние Ф1                                         |
 | ----------------------------------------- | -------------------------- | ---------------------------------------------------- |
 | `/`                                       | аноним (`RequireAnonOnly`) | выбор здания с реальными счётчиками                  |
-| `/b/:buildingId`, `/b/all`                | все                        | каркас публичного дашборда (3 колонки без `done`)    |
+| `/b/:buildingId`, `/b/all`                | все                        | публичная доска здания / сводка по всем зданиям      |
 | `/t/:token`                               | все (по токену)            | карточка по токену: поля, комментарии, Word          |
-| `/public/kb`                              | все                        | заглушка Ф3 (fe-2)                                   |
+| `/public/kb`                              | все                        | публичная БЗ: дерево без скрытых разделов            |
 | `/login`, `/change-password`              | аноним / авторизованный    | реальные формы (RHF + zod)                           |
 | `/tickets`                                | авторизованные             | доска 4 колонки, фильтры, карточка, комментарии (Ф2) |
 | `/kb`, `/equipment`, `/stats`, `/profile` | авторизованные             | заглушки Ф3/Ф4/Ф10                                   |
 | `/admin/*`                                | только `ADMIN`             | заглушки Ф6/Ф7/Ф10                                   |
+| `/403`                                    | все                        | страница «доступ запрещён»                           |
 
 Заглушки живут в `src/pages/placeholders/PlaceholderPage.tsx` — они **не занимают**
 каталоги чужих агентов. Замена — одна строка в `src/app/routes/appRoutes.tsx`.
@@ -120,22 +121,56 @@ src/
 Структура раздела: `src/pages/tickets/{TicketsPage.tsx,components/,hooks/,__tests__/}`.
 MSW-хендлеры заявок — `src/mocks/handlers/tickets.ts` (владелец fe-1).
 
+## Публичный периметр (Ф5)
+
+`/` → `/b/{id}` → `/t/{token}` работает без входа и без бэкенда (MSW):
+
+- **Выбор здания** (`/`, PUB-1): карточки только активных зданий со счётчиками
+  `new`/`in_progress`/`deferred`; выбор пишет cookie `anon_building_id`
+  (30 дней, `SameSite=Lax`, `path=/`, доступна JS) и ведёт на `/b/{id}`.
+  Cookie валидного здания → авторедирект; `?change=1` его отключает; cookie на
+  деактивированное/удалённое здание сбрасывается. Авторизованного `RequireAnonOnly`
+  уводит на `/tickets`.
+- **Доска здания** (`/b/:buildingId`, PUB-2/PUB-4): 3 колонки без `done`, карточки
+  только из разрешённых полей (заявитель, кабинет, вид проблемы, статус, дедлайн,
+  исполнитель), без описания/комментариев/файлов. Переключатель зданий — в шапке
+  `PublicLayout`; `/b/all` — сводка по всем активным зданиям, только чтение:
+  кнопка создания неактивна с подсказкой. Неактивное/несуществующее здание → 404.
+  Просрочка на публичной доске не считается: `is_overdue` есть только в токен-карточке.
+- **Создание заявки** (PUB-5): здание подставлено и изменяемо; валидация
+  (applicant 1–120, cabinet 1–32, вид проблемы, описание 1–5000). После успеха —
+  экран со ссылкой `/t/{token}` и кнопкой копирования (токен выдаётся один раз),
+  cookie переключается на выбранное здание, кнопка «Перейти в дашборд» открывает
+  `/b/{id}`.
+- **Карточка по токену** (`/t/:token`, PUB-6): поля, дедлайн по серверному
+  `is_overdue`, статус, вложения с просмотром/видео, комментарии с серверной
+  пагинацией по 50, добавление комментария с до 5 файлами (фото ≤10 МБ,
+  видео ≤200 МБ, прогресс) и «Скачать в Word». Чужой/битый токен → 404.
+- **Публичная БЗ** (`/public/kb`, PUB-7): дерево без скрытых разделов, статья
+  read-only; HTML санитизируется (KB-4, DOMPurify + allowlist), медиа
+  переписывается на `/api/public/files/{id}`. Прямой запрос скрытого узла → 404.
+- Страницы: `PublicNotFound` (404) и `/403` — `ForbiddenPage`.
+
+Файлы: `src/pages/public/{BuildingSelectPage,BuildingDashboardPage,PublicTicketPage,PublicKbPage}.tsx`,
+компоненты в `src/pages/public/components/`, cookie-хук — `src/hooks/useAnonBuilding.ts`,
+копирование ссылки — `src/app/clipboard.ts`. MSW — `src/mocks/handlers/public.ts`.
+
 ## MSW: что покрыто
 
 Все эндпоинты §3.13. Хендлеры разбиты по доменам — правит только владелец домена:
 
-| Файл                       | Эндпоинты                                                                                   |
-| -------------------------- | ------------------------------------------------------------------------------------------- |
-| `handlers/auth.ts`         | `/auth/login                                                                                | refresh                       | logout | me  | password`, push-подписки |
-| `handlers/public.ts`       | `/public/buildings`, `/public/tickets*`, `/public/files/:id`, `/public/kb/*`                |
-| `handlers/tickets.ts`      | `/tickets*`, комментарии, `export.docx`, `/users/assignable`                                |
-| `handlers/kb.ts`           | `/kb/tree                                                                                   | nodes*`, `move`, `visibility` |
-| `handlers/equipment.ts`    | `/buildings*`, `/warehouses*`, `/equipment*`, `inventory.xlsx`                              |
-| `handlers/admin.ts`        | `/admin/users*`, `/admin/settings`, справочники, праздники, `/admin/trash*`, `/admin/stats` |
-| `handlers/stats.ts`        | `/stats/me`, `/stats/export.xlsx`                                                           |
-| `handlers/files.ts`        | `/files` (multipart), `/files/:id`                                                          |
-| `handlers/dictionaries.ts` | `GET /api/problem-types` — аддитивное расширение, см. «Ограничения Ф2»                      |
-| `handlers/health.ts`       | `/health`, `/health/ready`                                                                  |
+| Файл                       | Эндпоинты                                                                                                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `handlers/auth.ts`         | `/auth/login                                                                                                                                                               | refresh                       | logout | me  | password`, push-подписки |
+| `handlers/public.ts`       | `/public/buildings`, `/public/tickets*`, `/public/problem-types`, `/public/tickets/{token}/comments`, `/public/tickets/{token}/files`, `/public/files/:id`, `/public/kb/*` |
+| `handlers/tickets.ts`      | `/tickets*`, комментарии, `export.docx`, `/users/assignable`                                                                                                               |
+| `handlers/kb.ts`           | `/kb/tree                                                                                                                                                                  | nodes*`, `move`, `visibility` |
+| `handlers/equipment.ts`    | `/buildings*`, `/warehouses*`, `/equipment*`, `inventory.xlsx`                                                                                                             |
+| `handlers/admin.ts`        | `/admin/users*`, `/admin/settings`, справочники, праздники, `/admin/trash*`, `/admin/stats`                                                                                |
+| `handlers/stats.ts`        | `/stats/me`, `/stats/export.xlsx`                                                                                                                                          |
+| `handlers/files.ts`        | `/files` (multipart), `/files/:id`                                                                                                                                         |
+| `handlers/dictionaries.ts` | `GET /api/problem-types` — аддитивное расширение, см. «Ограничения Ф2»                                                                                                     |
+| `handlers/health.ts`       | `/health`, `/health/ready`                                                                                                                                                 |
 
 Что моделируется «как на сервере»:
 
@@ -146,7 +181,9 @@ MSW-хендлеры заявок — `src/mocks/handlers/tickets.ts` (влад�
 - дерево БЗ глубины 6, скрытый корневой раздел (`/public/kb/*` → `404`), цикл → `409 CYCLE_DETECTED`;
 - `SAME_WAREHOUSE`, `DUPLICATE_REGISTRATION_NUMBER`, `WAREHOUSE_NOT_EMPTY`, `BUILDING_IN_USE`,
   `LAST_ADMIN`, `CANNOT_MODIFY_SELF`, `BUILDING_REQUIRED_FOR_USER`, `409/422` в целом;
-- корзина: восстановление и безвозвратное удаление, предупреждения (неактивное здание, потомки БЗ).
+- корзина: восстановление и безвозвратное удаление, предупреждения (неактивное здание, потомки БЗ);
+- публичный периметр: 404 для неактивного здания и чужого токена, `done` не отдаётся в списке,
+  токен анонимной заявки, комментарии анонима по токену, Word-blob, санитизация БЗ.
 
 Данные живут в памяти (`src/mocks/db.ts`, `resetDb()` в тестах): перезагрузка страницы
 возвращает сид. Сид: 4 здания (одно неактивное), 7 пользователей, 13 заявок (включая
@@ -189,6 +226,26 @@ MSW-хендлеры заявок — `src/mocks/handlers/tickets.ts` (влад�
 - В jsdom MSW не разбирает `multipart/form-data`, поэтому в тесте комментария загрузчик
   подменён; сам `FileUploader` покрыт отдельными тестами (лимиты, drag&drop, прогресс).
 - Ф8 добавит «Скачать в Word» в карточку заявки (кнопка уже есть, использует `ExportButton`).
+
+## Ограничения Ф5
+
+- **Контракт-гэпы** (все три — аддитивные расширения, нужен `openapi.yaml` и согласование
+  с lead/be; клиент уже работает через MSW):
+  1. `GET /api/public/problem-types` — анониму нужен справочник для формы (TICKET-4),
+     в §3.13 он есть только у ADMIN;
+  2. `GET /api/public/tickets/{token}/comments?page&size` — публичная пагинация
+     комментариев по 50 (в контракте был только POST);
+  3. `POST /api/public/tickets/{token}/files` (multipart) — вложение комментария анонима:
+     `POST /api/files` доступен только USER/ADMIN, а PUB-6 разрешает файлы.
+- Публичная доска не показывает `is_overdue`: TICKET-5 не включает флаг в карточку,
+  поэтому просрочка отображается только в токен-карточке (NFR-7 — не считаем на клиенте).
+- Медиа статей БЗ в дереве/статье переписывается на `/api/public/files/{id}`
+  (в контракте `<img src="/api/files/{id}">` требует авторизации).
+- В jsdom MSW не разбирает `multipart/form-data`, поэтому тесты публичного комментария
+  подменяют `uploadPublicCommentFile`; сам транспорт и лимиты проверяются в Ф1/Б3.
+- Ф8 доработает `ExportButton` (состояния/ошибки) для публичной карточки; сейчас кнопка
+  использует общий компонент и `skipAuth`.
+- Ф11: Playwright-сценарии публичного периметра (приватное окно, cookie, Word, 375 px).
 
 ## Docker
 
