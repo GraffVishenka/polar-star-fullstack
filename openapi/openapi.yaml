@@ -1437,7 +1437,11 @@ paths:
       summary: Массовое перемещение оборудования
       description: |
         EQ-4: 1..200 единиц, одна транзакция, блокировки по возрастанию id, журнал по
-        каждой единице. Несуществующий id → `404` с откатом; > 200 → `422`.
+        каждой перемещённой единице. Несуществующий/удалённый id → `404` с откатом всей
+        операции; > 200 или пустой список → `422`. Целевой склад должен быть активным:
+        USER не может перемещать в деактивированное здание (`422 BUILDING_INACTIVE`),
+        ADMIN может. Единицы, уже находящиеся в целевом складе, пропускаются
+        (`skipped_count`); если таких все — `409 SAME_WAREHOUSE` без изменений.
       security: [{bearerAuth: []}]
       requestBody:
         required: true
@@ -1455,7 +1459,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/equipment/{id}/movements:
     get:
       tags: [Equipment]
@@ -3443,6 +3446,12 @@ components:
       required: [moved_count, movements]
       properties:
         moved_count: {type: integer, minimum: 0}
+        skipped_count:
+          type: integer
+          minimum: 0
+          description: |
+            Единицы, которые уже находились в целевом складе и были пропущены
+            (записи журнала для них не создаются).
         movements:
           type: array
           items: {$ref: '#/components/schemas/EquipmentMovement'}

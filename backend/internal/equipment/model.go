@@ -120,3 +120,20 @@ type MoveResult struct {
 	Equipment *Equipment
 	Movement  *Movement
 }
+
+// BulkMoveInput — провалидированное тело POST /api/equipment/bulk-move (EQ-4).
+type BulkMoveInput struct {
+	// EquipmentIDs — уникальные положительные id (1..200), порядок не важен:
+	// репозиторий сортирует их и блокирует строки по возрастанию id.
+	EquipmentIDs  []int64
+	ToWarehouseID int64
+	Comment       *string
+}
+
+// BulkMoveResult — итог массового перемещения (EQ-4): перемещённые и
+// пропущенные (уже находившиеся в целевом складе) единицы плюс журнал.
+type BulkMoveResult struct {
+	MovedCount   int
+	SkippedCount int
+	Movements    []*Movement
+}

@@ -103,6 +103,10 @@ func (stubEquipmentRepo) Move(context.Context, int64, equipment.MoveInput, equip
 	return nil, nil, equipment.ErrSameWarehouse
 }
 
+func (stubEquipmentRepo) BulkMove(context.Context, equipment.BulkMoveInput, equipment.Actor) ([]*equipment.Movement, int, error) {
+	return nil, 0, equipment.ErrSameWarehouse
+}
+
 func (stubEquipmentRepo) Movements(context.Context, int64, int, int) ([]equipment.Movement, int, error) {
 	return nil, 0, nil
 }
@@ -183,8 +187,8 @@ func TestB4RoutesRegistration(t *testing.T) {
 			http.StatusNotFound, "NOT_FOUND"},
 		{"журнал перемещений несуществующей единицы", http.MethodGet, "/api/equipment/1/movements", userToken, nil,
 			http.StatusNotFound, "NOT_FOUND"},
-		{"массовое перемещение — Б12", http.MethodPost, "/api/equipment/bulk-move", adminToken,
-			jsonBody(map[string]any{}), http.StatusNotImplemented, "NOT_IMPLEMENTED"},
+		{"массовое перемещение без единиц", http.MethodPost, "/api/equipment/bulk-move", adminToken,
+			jsonBody(map[string]any{}), http.StatusUnprocessableEntity, "VALIDATION_ERROR"},
 		{"ведомость помещения — Б6/Б10", http.MethodGet, "/api/warehouses/1/inventory.xlsx", userToken, nil,
 			http.StatusNotImplemented, "NOT_IMPLEMENTED"},
 	}

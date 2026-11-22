@@ -104,20 +104,70 @@ func ValidateMove(req MoveRequest) (MoveInput, map[string]string) {
 	if req.ToWarehouseID <= 0 {
 		details["to_warehouse_id"] = "должно быть положительным"
 	}
+	comment, message := normalizeComment(req.Comment)
+	if message != "" {
+		details["comment"] = message
+	}
+	return MoveInput{ToWarehouseID: req.ToWarehouseID, Comment: comment}, details
+}
 
-	var comment *string
-	if req.Comment != nil {
-		value := strings.TrimSpace(*req.Comment)
-		if value == "" {
-			comment = nil
-		} else if utf8.RuneCountInString(value) > maxCommentLength {
-			details["comment"] = "не более 1000 символов"
-		} else {
-			comment = &value
+// MaxBulkMoveItems — EQ-4: не более 200 единиц за одну операцию.
+const MaxBulkMoveItems = 200
+
+// ValidateBulkMove проверяет тело POST /api/equipment/bulk-move (EQ-4):
+// список 1..200 уникальных положительных id, целевой склад, комментарий.
+// Дубликаты удаляются — повторный id не должен создавать вторую запись журнала.
+func ValidateBulkMove(req BulkMoveRequest) (BulkMoveInput, map[string]string) {
+	details := map[string]string{}
+
+	if len(req.EquipmentIDs) > MaxBulkMoveItems {
+		details["equipment_ids"] = "не более 200 единиц за операцию"
+	}
+	ids := make([]int64, 0, len(req.EquipmentIDs))
+	seen := make(map[int64]struct{}, len(req.EquipmentIDs))
+	for _, id := range req.EquipmentIDs {
+		if id <= 0 {
+			details["equipment_ids"] = "идентификаторы должны быть положительными"
+			continue
 		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 && details["equipment_ids"] == "" {
+		details["equipment_ids"] = "укажите от 1 до 200 единиц"
+	}
+	if req.ToWarehouseID <= 0 {
+		details["to_warehouse_id"] = "должно быть положительным"
+	}
+	comment, message := normalizeComment(req.Comment)
+	if message != "" {
+		details["comment"] = message
 	}
 
-	return MoveInput{ToWarehouseID: req.ToWarehouseID, Comment: comment}, details
+	return BulkMoveInput{
+		EquipmentIDs:  ids,
+		ToWarehouseID: req.ToWarehouseID,
+		Comment:       comment,
+	}, details
+}
+
+// normalizeComment обрезает необязательный комментарий перемещения (EQ-3,
+// EQ-4): пустая строка превращается в null, длиннее 1000 символов — ошибка.
+func normalizeComment(raw *string) (*string, string) {
+	if raw == nil {
+		return nil, ""
+	}
+	value := strings.TrimSpace(*raw)
+	if value == "" {
+		return nil, ""
+	}
+	if utf8.RuneCountInString(value) > maxCommentLength {
+		return nil, "не более 1000 символов"
+	}
+	return &value, ""
 }
 
 // ParsePagination разбирает page/size контракта: page ≥ 1 (по умолчанию 1),

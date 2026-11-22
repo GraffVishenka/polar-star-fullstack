@@ -118,6 +118,28 @@ func (s *Service) Move(ctx context.Context, id int64, in MoveInput, actor Actor)
 	return &MoveResult{Equipment: item, Movement: movement}, nil
 }
 
+// BulkMove — массовое перемещение единиц в один склад (EQ-4): одна транзакция,
+// журнал по каждой перемещённой единице, пропуск единиц, уже находящихся в
+// целевом складе. Валидацию набора (1..200) выполняет handler; репозиторий
+// повторно нормализует набор на случай прямого вызова.
+func (s *Service) BulkMove(ctx context.Context, in BulkMoveInput, actor Actor) (*BulkMoveResult, error) {
+	// Защитная проверка набора: handler валидирует его до вызова, но сервис
+	// используется и напрямую (будущие интеграции), а пустой список не должен
+	// превращаться в «уже в этом складе» (409) на уровне репозитория.
+	if len(in.EquipmentIDs) == 0 || len(in.EquipmentIDs) > MaxBulkMoveItems {
+		return nil, mapError(ErrInvalidSelection)
+	}
+	movements, skipped, err := s.repo.BulkMove(ctx, in, actor)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &BulkMoveResult{
+		MovedCount:   len(movements),
+		SkippedCount: skipped,
+		Movements:    movements,
+	}, nil
+}
+
 // Movements — журнал перемещений единицы (EQ-5): сначала проверяем, что сама
 // единица существует, иначе отдаём 404 и пустой список.
 func (s *Service) Movements(ctx context.Context, id int64, page, size int) (*MovementPage, error) {
@@ -164,6 +186,9 @@ func mapError(err error) error {
 	case errors.Is(err, ErrBuildingInactive):
 		return apierr.New(http.StatusUnprocessableEntity, apierr.CodeBuildingInactive,
 			"Здание деактивировано: размещение оборудования доступно только администратору")
+	case errors.Is(err, ErrInvalidSelection):
+		return apierr.Validation("Проверьте набор оборудования",
+			map[string]any{"equipment_ids": "ожидается от 1 до 200 уникальных единиц"})
 	default:
 		return apierr.Internal(err)
 	}

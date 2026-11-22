@@ -196,8 +196,8 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 		r.Get("/equipment", eh.List)
 		r.Post("/equipment", eh.Create)
 		// Статический сегмент регистрируется до параметра {id}, чтобы не было
-		// неоднозначности при разборе пути. Массовое перемещение — Б12.
-		r.Post("/equipment/bulk-move", s.notImplemented)
+		// неоднозначности при разборе пути.
+		r.Post("/equipment/bulk-move", eh.BulkMove)
 		r.Get("/equipment/{id}", eh.Get)
 		r.Patch("/equipment/{id}", eh.Update)
 		r.Post("/equipment/{id}/move", eh.Move)
