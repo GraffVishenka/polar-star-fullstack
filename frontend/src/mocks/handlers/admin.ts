@@ -32,6 +32,23 @@ import {
 
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
+/** TRASH-4: срок хранения корзины до автоочистки. */
+const TRASH_RETENTION_DAYS = 90;
+
+/** Идентификаторы потомков узла БЗ — для окончательного удаления (TRASH-3). */
+function descendantKbIds(id: number): number[] {
+  const collect = (parentId: number, acc: number[] = []): number[] => {
+    db.kbNodes
+      .filter((node) => node.parent_id === parentId)
+      .forEach((child) => {
+        acc.push(child.id);
+        collect(child.id, acc);
+      });
+    return acc;
+  };
+  return collect(id);
+}
+
 function isKnownTimezone(timezone: string): boolean {
   try {
     new Intl.DateTimeFormat('ru-RU', { timeZone: timezone });
@@ -389,7 +406,7 @@ export const adminHandlers = [
     return noContent();
   }),
 
-  // --- Корзина (TRASH-1..3) ----------------------------------------------
+  // --- Корзина (TRASH-1..TRASH-5) ----------------------------------------
   http.get(`${API}/admin/trash`, ({ request }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
@@ -398,8 +415,12 @@ export const adminHandlers = [
     const page = Number(url.searchParams.get('page') ?? '1') || 1;
     const size = Number(url.searchParams.get('size') ?? '20') || 20;
 
+    // TRASH-4: элементы старше 90 дней удаляются ежедневной джобой — мок
+    // отбрасывает их на чтении, чтобы дата автоочистки была не декоративной.
+    const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
     const items = db.trash
       .filter((item) => item.type === type)
+      .filter((item) => new Date(item.deleted_at).getTime() >= cutoff)
       .sort((a, b) => b.deleted_at.localeCompare(a.deleted_at))
       .map(toTrashItem);
     return json(paginate(items, page, size));
@@ -413,34 +434,79 @@ export const adminHandlers = [
     const trashItem = db.trash.find((item) => item.type === type && item.id === id);
     if (!trashItem) return notFound('Элемент корзины не найден');
 
+    const removeFromTrash = () => {
+      db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
+    };
+    const restored = (warnings: string[] = []) => json({ type, id, restored: true, warnings });
+
     if (type === 'ticket') {
       const ticket = db.tickets.find((item) => item.id === id);
       if (!ticket) return notFound('Заявка не найдена');
       // TRASH-2: заявка возвращается со статусом и зданием, completed_at сохраняется.
       ticket.deleted_at = null;
-      db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
-      return json({
-        ok: true,
-        warnings: findBuilding(ticket.building_id)?.is_active ? [] : ['Здание деактивировано'],
-      });
+      removeFromTrash();
+      const building = findBuilding(ticket.building_id);
+      return restored(
+        building && !building.is_active
+          ? ['Здание деактивировано: заявка восстановлена, но публично недоступна']
+          : [],
+      );
     }
 
     if (type === 'kb') {
-      // TRASH-2/TRASH-5: узел восстанавливается только при живом родителе или в корень.
-      const node = db.kbNodes.find((item) => item.id === id);
-      if (!node) return fail(409, 'CONFLICT', 'Узел восстанавливается только вместе с родителем');
-      db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
-      return json({ ok: true, warnings: ['Потомки узла не восстановлены'] });
+      // TRASH-2/TRASH-5: узел восстанавливается один, без потомков;
+      // если родитель удалён — восстановление в него запрещено.
+      const existing = db.kbNodes.find((item) => item.id === id);
+      if (existing) {
+        // Данные уже на месте (например, элемент попал в корзину повторно) — снимаем метку.
+        removeFromTrash();
+        return restored(['Потомки узла не восстановлены']);
+      }
+      const snapshot = trashItem.snapshot;
+      const parentId = snapshot?.parent_id ?? null;
+      if (parentId !== null && !db.kbNodes.some((item) => item.id === parentId)) {
+        return conflict(
+          'CONFLICT',
+          'Родительский раздел удалён: восстановите его первым или восстановите узел в корень',
+        );
+      }
+      const now = new Date().toISOString();
+      db.kbNodes.push({
+        id,
+        title: snapshot?.title ?? `Узел №${id}`,
+        content_html: '',
+        parent_id: parentId,
+        sort_order: snapshot?.sort_order ?? 10,
+        is_hidden_for_anon: Boolean(snapshot?.is_hidden_for_anon) && parentId === null,
+        created_at: now,
+        updated_at: now,
+        updated_by_name: auth.user.full_name,
+        media_ids: [],
+      });
+      removeFromTrash();
+      return restored(['Потомки узла не восстановлены (TRASH-5)']);
     }
 
     const equipment = db.equipment.find((item) => item.id === id);
     if (!equipment) return notFound('Оборудование не найдено');
     if (!db.warehouses.some((warehouse) => warehouse.id === equipment.warehouse_id)) {
-      return fail(409, 'CONFLICT', 'Помещение оборудования больше не существует');
+      return conflict('CONFLICT', 'Помещение оборудования больше не существует');
+    }
+    // TRASH-2: конфликт регистрационного номера среди неудалённых единиц → 409.
+    const duplicate = db.equipment.some(
+      (other) =>
+        other.id !== equipment.id &&
+        other.deleted_at === null &&
+        other.registration_number.toLowerCase() === equipment.registration_number.toLowerCase(),
+    );
+    if (duplicate) {
+      return fail(409, 'DUPLICATE_REGISTRATION_NUMBER', 'Регистрационный номер уже занят', {
+        registration_number: equipment.registration_number,
+      });
     }
     equipment.deleted_at = null;
-    db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
-    return json({ ok: true, warnings: [] });
+    removeFromTrash();
+    return restored();
   }),
 
   http.delete(`${API}/admin/trash/:type/:id`, ({ request, params }) => {
@@ -458,9 +524,11 @@ export const adminHandlers = [
       db.comments = db.comments.filter((comment) => comment.ticket_id !== id);
       db.files = db.files.filter((file) => file.ticket_id !== id);
     } else if (type === 'kb') {
-      db.kbNodes = db.kbNodes.filter((node) => node.id !== id);
+      const removed = [id, ...descendantKbIds(id)];
+      db.kbNodes = db.kbNodes.filter((node) => !removed.includes(node.id));
     } else {
       db.equipment = db.equipment.filter((item) => item.id !== id);
+      db.movements = db.movements.filter((movement) => movement.equipment_id !== id);
     }
     db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
     return noContent();

@@ -166,6 +166,19 @@ export interface MockTrashItem {
   id: number;
   deleted_at: string;
   deleted_by_user_id: number;
+  /**
+   * Снимок удалённого узла БЗ (TRASH-2/TRASH-5).
+   *
+   * `DELETE /kb/nodes/{id}` убирает узел из дерева, поэтому для восстановления
+   * корневого раздела храним минимум полей: заголовок и родителя. Потомки
+   * намеренно не сохраняются — они не восстанавливаются (TRASH-5).
+   */
+  snapshot?: {
+    title?: string;
+    parent_id?: number | null;
+    sort_order?: number;
+    is_hidden_for_anon?: boolean;
+  };
 }
 
 export interface MockPushSubscription {
@@ -560,9 +573,11 @@ function seedTickets(): MockTicket[] {
       created_by_user_id: 2,
       completedDaysAgo: 28,
     }),
+    // TRASH-2: заявка удалена, а её здание позже деактивировали — при
+    // восстановлении нужно предупредить, что публично она будет недоступна.
     makeTicket({
       id: 13,
-      building_id: 1,
+      building_id: 4,
       applicant_name: 'Удалённая заявка',
       cabinet: 'каб. 1',
       problem_type_id: 5,
@@ -796,6 +811,18 @@ function seedEquipment(): { warehouses: MockWarehouse[]; equipment: MockEquipmen
       created_at: isoDaysAgo(500),
       deleted_at: null,
     },
+    // Удалённая единица с занятым регистрационным номером (INV-1001 активна):
+    // TRASH-2 — восстановление такого оборудования обязано вернуть 409.
+    {
+      id: 10,
+      name: 'Ноутбук Dell Latitude (списан)',
+      equipment_type_id: 1,
+      serial_number: 'DL-4410-OLD',
+      registration_number: 'INV-1001',
+      warehouse_id: 2,
+      created_at: isoDaysAgo(320),
+      deleted_at: isoDaysAgo(6),
+    },
   ];
 
   return { warehouses, equipment };
@@ -897,7 +924,23 @@ export function createSeed(): MockDb {
     settings: seedSettings(),
     trash: [
       { type: 'ticket', id: 13, deleted_at: isoDaysAgo(3), deleted_by_user_id: 1 },
-      { type: 'kb', id: 12, deleted_at: isoDaysAgo(4), deleted_by_user_id: 1 },
+      // KB: снимок нужен для восстановления корневого раздела (TRASH-2/TRASH-5).
+      {
+        type: 'kb',
+        id: 12,
+        deleted_at: isoDaysAgo(4),
+        deleted_by_user_id: 1,
+        snapshot: { title: 'Заявки на проверку', parent_id: 10 },
+      },
+      // Узел 13 уже удалён из дерева: восстанавливается из снимка в корень.
+      {
+        type: 'kb',
+        id: 13,
+        deleted_at: isoDaysAgo(9),
+        deleted_by_user_id: 1,
+        snapshot: { title: 'Архивная инструкция', parent_id: null },
+      },
+      { type: 'equipment', id: 10, deleted_at: isoDaysAgo(6), deleted_by_user_id: 1 },
     ],
     pushSubscriptions: [
       {
@@ -1252,42 +1295,76 @@ export function toTrashItem(item: MockTrashItem): TrashItem {
   const deletedBy = findUser(item.deleted_by_user_id);
   if (item.type === 'ticket') {
     const ticket = db.tickets.find((entry) => entry.id === item.id);
+    const building = ticket ? findBuilding(ticket.building_id) : undefined;
     return {
       id: item.id,
       type: item.type,
       title: `Заявка №${item.id}`,
-      description: ticket
-        ? `${ticket.applicant_name} · ${findBuilding(ticket.building_id)?.name ?? '—'}`
-        : null,
+      description: ticket ? `${ticket.applicant_name} · ${building?.name ?? '—'}` : null,
       deleted_at: item.deleted_at,
       deleted_by_name: deletedBy?.full_name ?? '—',
-      warnings:
-        ticket && findBuilding(ticket.building_id)?.is_active === false
-          ? ['Здание деактивировано: после восстановления заявка будет недоступна публично']
-          : [],
+      warnings: !ticket
+        ? ['Заявка не найдена']
+        : !building
+          ? ['Здание заявки удалено — восстановление будет неполным']
+          : building.is_active
+            ? []
+            : ['Здание деактивировано: после восстановления заявка будет недоступна публично'],
     };
   }
+
   if (item.type === 'kb') {
+    // TRASH-2/TRASH-5: узел удаляется из дерева, для восстановления используем снимок.
     const node = db.kbNodes.find((entry) => entry.id === item.id);
+    const parentId = node ? node.parent_id : (item.snapshot?.parent_id ?? null);
+    const parent =
+      parentId === null ? undefined : db.kbNodes.find((entry) => entry.id === parentId);
+    const warnings = ['Потомки узла не восстанавливаются (TRASH-5)'];
+    if (!node && parentId !== null && !parent) {
+      warnings.push('Родительский раздел удалён — восстановление невозможно');
+    }
     return {
       id: item.id,
       type: item.type,
-      title: node?.title ?? `Узел №${item.id}`,
-      description: node ? 'Раздел базы знаний' : null,
+      title: node?.title ?? item.snapshot?.title ?? `Узел №${item.id}`,
+      description:
+        parentId === null ? 'Корневой раздел базы знаний' : `Раздел БЗ · «${parent?.title ?? '—'}»`,
       deleted_at: item.deleted_at,
       deleted_by_name: deletedBy?.full_name ?? '—',
-      warnings: ['Потомки узла не восстанавливаются'],
+      warnings,
     };
   }
+
   const equipment = db.equipment.find((entry) => entry.id === item.id);
+  const warehouse = equipment ? findWarehouse(equipment.warehouse_id) : undefined;
+  const building = warehouse ? findBuilding(warehouse.building_id) : undefined;
+  const warnings: string[] = [];
+  if (!warehouse) {
+    warnings.push('Помещение оборудования удалено — восстановление невозможно');
+  } else if (building?.is_active === false) {
+    warnings.push('Здание деактивировано: оборудование вернётся в архив деактивированного здания');
+  }
+  const duplicate = equipment
+    ? db.equipment.some(
+        (other) =>
+          other.id !== equipment.id &&
+          other.deleted_at === null &&
+          other.registration_number.toLowerCase() === equipment.registration_number.toLowerCase(),
+      )
+    : false;
+  if (duplicate) {
+    warnings.push('Регистрационный номер уже занят другой единицей — восстановление вернёт 409');
+  }
   return {
     id: item.id,
     type: item.type,
     title: equipment?.name ?? `Оборудование №${item.id}`,
-    description: equipment?.registration_number ?? null,
+    description: equipment
+      ? `${equipment.registration_number} · ${warehouse?.name ?? '—'}, ${building?.name ?? '—'}`
+      : null,
     deleted_at: item.deleted_at,
     deleted_by_name: deletedBy?.full_name ?? '—',
-    warnings: [],
+    warnings,
   };
 }
 

@@ -67,12 +67,19 @@ export const equipmentHandlers = [
     if (!auth.ok) return auth.response;
     const body = await readBody<BuildingCreateRequest>(request);
     const name = typeof body.name === 'string' ? body.name.trim() : '';
-    if (!name) return validation('Укажите название здания', { name: 'обязательное поле' });
+    if (!name || name.length > 200) {
+      return validation('Название здания — 1–200 символов', { name: '1–200' });
+    }
+    const address =
+      typeof body.address === 'string' && body.address.trim() ? body.address.trim() : null;
+    if (address && address.length > 500) {
+      return validation('Адрес — не более 500 символов', { address: '≤500' });
+    }
 
     const building = {
       id: nextId(db.buildings),
       name,
-      address: typeof body.address === 'string' && body.address.trim() ? body.address.trim() : null,
+      address,
       is_active: true,
       created_at: new Date().toISOString(),
     };
@@ -89,11 +96,13 @@ export const equipmentHandlers = [
     const body = await readBody<BuildingUpdateRequest>(request);
     if (body.name !== undefined) {
       const name = String(body.name).trim();
-      if (!name) return validation('Название не может быть пустым');
+      if (!name || name.length > 200) return validation('Название здания — 1–200 символов');
       building.name = name;
     }
     if (body.address !== undefined) {
-      building.address = body.address === null ? null : String(body.address).trim() || null;
+      const address = body.address === null ? null : String(body.address).trim() || null;
+      if (address && address.length > 500) return validation('Адрес — не более 500 символов');
+      building.address = address;
     }
     if (body.is_active !== undefined) building.is_active = Boolean(body.is_active);
     return json(toBuilding(building));
@@ -107,11 +116,36 @@ export const equipmentHandlers = [
     if (!building) return notFound('Здание не найдено');
 
     // EQ-6: физическое удаление только для неиспользуемых зданий.
-    const hasWarehouses = db.warehouses.some((warehouse) => warehouse.building_id === id);
-    const hasUsers = db.users.some((user) => user.building_id === id);
-    const hasTickets = db.tickets.some((ticket) => ticket.building_id === id);
-    if (hasWarehouses || hasUsers || hasTickets) {
-      return conflict('BUILDING_IN_USE', 'Здание используется: деактивируйте его вместо удаления');
+    const warehouseIds = db.warehouses
+      .filter((warehouse) => warehouse.building_id === id)
+      .map((warehouse) => warehouse.id);
+    const equipmentCount = db.equipment.filter(
+      (item) => item.deleted_at === null && warehouseIds.includes(item.warehouse_id),
+    ).length;
+    const usersCount = db.users.filter((user) => user.building_id === id).length;
+    const ticketsCount = db.tickets.filter(
+      (ticket) => ticket.building_id === id && ticket.deleted_at === null,
+    ).length;
+
+    const reasons: string[] = [];
+    if (warehouseIds.length) reasons.push(`Складов/кабинетов: ${warehouseIds.length}`);
+    if (equipmentCount) reasons.push(`Единиц оборудования: ${equipmentCount}`);
+    if (usersCount) reasons.push(`Закреплённых сотрудников: ${usersCount}`);
+    if (ticketsCount) reasons.push(`Заявок: ${ticketsCount}`);
+
+    if (reasons.length) {
+      return fail(
+        409,
+        'BUILDING_IN_USE',
+        'Здание используется: деактивируйте его вместо удаления',
+        {
+          reasons,
+          warehouses: warehouseIds.length,
+          equipment: equipmentCount,
+          users: usersCount,
+          tickets: ticketsCount,
+        },
+      );
     }
     db.buildings = db.buildings.filter((item) => item.id !== id);
     return noContent();
@@ -139,12 +173,18 @@ export const equipmentHandlers = [
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const building = findBuilding(Number(body.building_id));
     if (!building) return validation('Выберите здание');
-    if (!name) return validation('Укажите название помещения');
+    if (!name || name.length > 200) return validation('Название помещения — 1–200 символов');
 
     const duplicate = db.warehouses.some(
-      (warehouse) => warehouse.building_id === building.id && warehouse.name === name,
+      (warehouse) =>
+        warehouse.building_id === building.id &&
+        warehouse.name.toLowerCase() === name.toLowerCase(),
     );
-    if (duplicate) return conflict('CONFLICT', 'Помещение с таким названием уже есть в здании');
+    if (duplicate) {
+      return fail(409, 'CONFLICT', 'Помещение с таким названием уже есть в здании', {
+        field: 'name',
+      });
+    }
 
     const warehouse = {
       id: nextId(db.warehouses),
@@ -164,7 +204,19 @@ export const equipmentHandlers = [
     const body = await readBody<WarehouseUpdateRequest>(request);
     if (body.name !== undefined) {
       const name = String(body.name).trim();
-      if (!name) return validation('Название не может быть пустым');
+      if (!name || name.length > 200) return validation('Название помещения — 1–200 символов');
+      // EQ-1: имя уникально в рамках здания (не считая самого склада).
+      const duplicate = db.warehouses.some(
+        (item) =>
+          item.id !== warehouse.id &&
+          item.building_id === warehouse.building_id &&
+          item.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (duplicate) {
+        return fail(409, 'CONFLICT', 'Помещение с таким названием уже есть в здании', {
+          field: 'name',
+        });
+      }
       warehouse.name = name;
     }
     return json(toWarehouse(warehouse));
@@ -176,8 +228,15 @@ export const equipmentHandlers = [
     const id = pathId(params.id) ?? 0;
     const warehouse = findWarehouse(id);
     if (!warehouse) return notFound('Помещение не найдено');
-    if (db.equipment.some((item) => item.warehouse_id === id && item.deleted_at === null)) {
-      return conflict('WAREHOUSE_NOT_EMPTY', 'В помещении есть оборудование — переместите его');
+    const equipmentCount = db.equipment.filter(
+      (item) => item.warehouse_id === id && item.deleted_at === null,
+    ).length;
+    if (equipmentCount > 0) {
+      // EQ-6: пустой склад удаляется, непустой — нет (данные не теряются).
+      return fail(409, 'WAREHOUSE_NOT_EMPTY', 'В помещении есть оборудование — переместите его', {
+        equipment_count: equipmentCount,
+        reasons: [`Единиц оборудования: ${equipmentCount}`],
+      });
     }
     db.warehouses = db.warehouses.filter((item) => item.id !== id);
     return noContent();
