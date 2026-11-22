@@ -158,7 +158,6 @@ paths:
           $ref: '#/components/responses/OkPublicBuildings'
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/tickets:
     get:
       tags: [Public]
@@ -181,7 +180,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Public]
       operationId: createPublicTicket
@@ -189,7 +187,7 @@ paths:
       description: |
         TICKET-4 / TICKET-13 / PUB-5: `building_id` обязателен; неактивное или
         несуществующее здание → `404`. Дедлайн считается сервером как N рабочих дней
-        (TICKET-3). В ответе один раз выдаётcs `access_token` для бессрочной ссылки
+        (TICKET-3). В ответе один раз выдаётся `access_token` для бессрочной ссылки
         `/t/{token}`; в БД хранится только SHA-256.
         Лимит — 5 запросов / 10 минут на IP (AUTH-3).
       requestBody:
@@ -205,7 +203,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/tickets/{token}:
     get:
       tags: [Public]
@@ -222,8 +219,25 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/tickets/{token}/comments:
+    get:
+      tags: [Public]
+      operationId: listPublicComments
+      summary: Комментарии заявки по токену
+      description: |
+        TICKET-13 / TICKET-14 / PUB-6: плоский список комментариев по 50 на страницу;
+        чужой или битый токен → `404`. Вложения отдаются в `files[]`.
+      parameters:
+        - $ref: '#/components/parameters/TokenPath'
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkCommentList'
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
     post:
       tags: [Public]
       operationId: createPublicComment
@@ -247,7 +261,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/public/tickets/{token}/export.docx:
     get:
       tags: [Public]
@@ -327,6 +340,42 @@ paths:
           $ref: '#/components/responses/BinaryFileRange'
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/files:
+    post:
+      tags: [Files]
+      operationId: uploadPublicFile
+      summary: Загрузка файла анонимом по токену заявки
+      description: |
+        Б3 / TICKET-13: загрузка вложения для публичного комментария по токену заявки.
+        Проверки magic bytes, лимиты и выдача — как в `POST /api/files`.
+        Маршрут реализуется доменом файлов (Б3); до мержа отвечает `501`.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: Токен анонимной заявки.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, scope]
+              properties:
+                file: {type: string, format: binary}
+                scope: {type: string, enum: [ticket]}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedFile'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ValidationError'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
@@ -423,7 +472,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Tickets]
       operationId: createTicket
@@ -449,7 +497,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/tickets/{id}:
     get:
       tags: [Tickets]
@@ -469,7 +516,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     patch:
       tags: [Tickets]
       operationId: updateTicket
@@ -503,7 +549,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     delete:
       tags: [Tickets]
       operationId: deleteTicket
@@ -522,7 +567,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/tickets/{id}/export.docx:
     get:
       tags: [Tickets]
@@ -564,7 +608,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
     post:
       tags: [Tickets]
       operationId: createTicketComment
@@ -591,7 +634,6 @@ paths:
         '422': {$ref: '#/components/responses/ValidationError'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/files:
     post:
       tags: [Files]
@@ -830,7 +872,6 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {$ref: '#/components/responses/PasswordChangeRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
-        '501': {$ref: '#/components/responses/NotImplemented'}
   /api/stats/me:
     get:
       tags: [Stats]
@@ -2559,14 +2600,18 @@ components:
       allOf:
         - $ref: '#/components/schemas/PublicTicketCard'
         - type: object
-          required: [description, comments]
+          required: [description, is_overdue, comments]
           properties:
-            description: |-
-              {type: string, maxLength: 5000}
+            description:
+              type: string
+              maxLength: 5000
             completed_at:
               type: string
               format: date-time
               nullable: true
+            is_overdue:
+              type: boolean
+              description: Рассчитывается сервером в timezone (TICKET-16).
             comments:
               type: array
               description: Комментарии заявки (плоский список).
@@ -2583,8 +2628,10 @@ components:
         applicant_name: {type: string, minLength: 1, maxLength: 120}
         cabinet: {type: string, minLength: 1, maxLength: 32}
         problem_type_id: {type: integer, format: int64, minimum: 1}
-        description: |-
-          {type: string, minLength: 1, maxLength: 5000}
+        description:
+          type: string
+          minLength: 1
+          maxLength: 5000
     PublicTicketCreateResponse:
       type: object
       required: [ticket, access_token, access_url]
@@ -2612,8 +2659,9 @@ components:
         cabinet: {type: string, maxLength: 32}
         problem_type_id: {type: integer, format: int64}
         problem_type_name: {type: string}
-        description: |-
-          {type: string, maxLength: 5000}
+        description:
+          type: string
+          maxLength: 5000
         deadline:
           type: string
           format: date
@@ -2688,8 +2736,10 @@ components:
         applicant_name: {type: string, minLength: 1, maxLength: 120}
         cabinet: {type: string, minLength: 1, maxLength: 32}
         problem_type_id: {type: integer, format: int64, minimum: 1}
-        description: |-
-          {type: string, minLength: 1, maxLength: 5000}
+        description:
+          type: string
+          minLength: 1
+          maxLength: 5000
         executor_id:
           type: integer
           format: int64
@@ -2704,8 +2754,10 @@ components:
         applicant_name: {type: string, minLength: 1, maxLength: 120}
         cabinet: {type: string, minLength: 1, maxLength: 32}
         problem_type_id: {type: integer, format: int64, minimum: 1}
-        description: |-
-          {type: string, minLength: 1, maxLength: 5000}
+        description:
+          type: string
+          minLength: 1
+          maxLength: 5000
         status: {$ref: '#/components/schemas/TicketStatus'}
         executor_id:
           type: integer
