@@ -54,6 +54,7 @@ func runSafely(ctx context.Context, logger *slog.Logger, spec workerSpec) {
 }
 
 // stubWorkers — перечень ещё не реализованных фоновых процессов (PLAN §3.10).
+// Очистка orphan-файлов реализована в Б3 и запускается отдельно в main.
 func stubWorkers(logger *slog.Logger) []workerSpec {
 	return []workerSpec{
 		{
@@ -61,14 +62,6 @@ func stubWorkers(logger *slog.Logger) []workerSpec {
 			every: 6 * time.Hour, // TRASH-4: автоочистка старше 90 дней
 			run: func(context.Context) error {
 				logger.Debug("worker stub: автоочистка корзины (реализация — Б10)")
-				return nil
-			},
-		},
-		{
-			name:  "orphan-files-cleanup",
-			every: time.Hour, // Б3: удаление файлов без ссылок старше суток
-			run: func(context.Context) error {
-				logger.Debug("worker stub: очистка orphan-файлов (реализация — Б3)")
 				return nil
 			},
 		},

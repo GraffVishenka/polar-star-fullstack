@@ -1,0 +1,120 @@
+# Production-конфигурация стека (PLAN §4, NFR-2). Отдельный файл, чтобы локальный
+# docker-compose.yml оставался удобным для разработки.
+#
+# Отличия от локального стека:
+#   * APP_ENV=production: API требует JWT_SECRET ≥ 32 символов и VAPID-ключи,
+#     refresh-cookie выставляется с Secure;
+#   * наружу опубликован только фронтенд (80) — MySQL и API доступны лишь внутри
+#     compose-сети; TLS терминируется внешним reverse proxy (nginx/traefik);
+#   * секреты обязательны: без них `docker compose up` не стартует
+#     (`${VAR:?сообщение}`);
+#   * лимиты логов и healthcheck'и для автоперезапуска.
+#
+# Запуск:
+#   cp .env.example .env && заполнить секреты (JWT_SECRET, MYSQL_*, VAPID_*,
+#   SEED_ADMIN_PASSWORD, CORS_ORIGIN)
+#   docker compose -f deploy/docker-compose.prod.yml up -d --build
+#   docker compose -f deploy/docker-compose.prod.yml exec api ./api migrate
+#
+# Бэкап: deploy/backup.sh (см. docs/HANDOVER.md, раздел «Эксплуатация»).
+
+name: polar-star-service-prod
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: always
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?задайте MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-polar_star}
+      MYSQL_USER: ${MYSQL_USER:-polar}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?задайте MYSQL_PASSWORD}
+    # Порт наружу не публикуется: доступ только из compose-сети.
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  api:
+    image: ${API_IMAGE:-polar-star-service-api:latest}
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      PORT: 8080
+      DATABASE_URL: mysql://${MYSQL_USER:-polar}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:-polar_star}
+      JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET (≥32 символов)}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-168h}
+      JWT_ISSUER: ${JWT_ISSUER:-polar-star-service}
+      TZ: ${TZ:-Asia/Yekaterinburg}
+      CORS_ORIGIN: ${CORS_ORIGIN:?задайте CORS_ORIGIN (домен фронтенда)}
+      UPLOAD_DIR: /data/uploads
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-209715200}
+      SEED_ADMIN_LOGIN: ${SEED_ADMIN_LOGIN:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?задайте SEED_ADMIN_PASSWORD}
+      SEED_ADMIN_FULL_NAME: ${SEED_ADMIN_FULL_NAME:-Администратор}
+      # Демо-данные в production по умолчанию выключены.
+      SEED_DEMO: ${SEED_DEMO:-false}
+      SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:?задайте VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:?задайте VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      TRUST_PROXY: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - uploads:/data/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-polar-star-service-frontend:latest}
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  mysql-data:
+  uploads:
