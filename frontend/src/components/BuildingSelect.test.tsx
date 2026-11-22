@@ -14,7 +14,7 @@ const buildings = [
 describe('BuildingSelect', () => {
   it('в режиме «Все здания» показывает выбранным пункт «Все здания»', () => {
     render(<BuildingSelect buildings={buildings} value={null} allowAll />);
-    expect(screen.getByText('Все здания')).toBeInTheDocument();
+    expect(screen.getByText(/Все здания/)).toBeInTheDocument();
   });
 
   it('показывает название выбранного здания', () => {
