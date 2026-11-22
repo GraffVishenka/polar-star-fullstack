@@ -21,6 +21,8 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { APP_NAME } from '@/app/config';
 import { useAuth } from '@/auth/AuthContext';
 import { BuildingBadge } from '@/components/BuildingBadge';
+import { PushHeaderToggle } from '@/push/PushHeaderToggle';
+import { PushProvider } from '@/push/PushProvider';
 
 const { Header, Content, Footer } = Layout;
 
@@ -82,68 +84,72 @@ export function AppLayout() {
   const buildingMissing = user?.role === 'USER' && !user.building_id;
 
   return (
-    <Layout className="app-shell">
-      <Header className="app-header">
-        <Flex align="center" gap={16} className="app-header__inner">
-          <Link to="/tickets" className="brand brand--compact">
-            <BankOutlined className="brand__icon" />
-            <Typography.Text strong className="brand__title">
-              {APP_NAME}
-            </Typography.Text>
-          </Link>
+    <PushProvider>
+      <Layout className="app-shell">
+        <Header className="app-header">
+          <Flex align="center" gap={16} className="app-header__inner">
+            <Link to="/tickets" className="brand brand--compact">
+              <BankOutlined className="brand__icon" />
+              <Typography.Text strong className="brand__title">
+                {APP_NAME}
+              </Typography.Text>
+            </Link>
 
-          <Menu
-            mode="horizontal"
-            selectedKeys={[selectedKey]}
-            items={menuItems}
-            className="app-header__menu"
+            <Menu
+              mode="horizontal"
+              selectedKeys={[selectedKey]}
+              items={menuItems}
+              className="app-header__menu"
+            />
+
+            <Space size={12} className="app-header__right">
+              {/* Ф9: push-переключатель синхронизирован с карточкой в /profile. */}
+              <PushHeaderToggle />
+              {user ? (
+                <BuildingBadge
+                  buildingId={user.building_id}
+                  buildingName={user.building_name}
+                  allBuildings={user.role === 'ADMIN'}
+                  size="small"
+                />
+              ) : null}
+              <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
+                <Button type="text" loading={loggingOut} data-testid="user-menu">
+                  <Space size={8}>
+                    <Avatar size={28} icon={<UserOutlined />} />
+                    <Typography.Text className="app-header__user-name">
+                      {user?.full_name ?? user?.login}
+                    </Typography.Text>
+                  </Space>
+                </Button>
+              </Dropdown>
+            </Space>
+          </Flex>
+        </Header>
+
+        {buildingMissing ? (
+          <Alert
+            type="warning"
+            banner
+            showIcon
+            message="Здание не назначено, обратитесь к администратору"
+            description="Список заявок и создание заявок недоступны, пока сотруднику не назначено здание."
+            data-testid="building-missing-banner"
           />
+        ) : null}
 
-          <Space size={12} className="app-header__right">
-            {user ? (
-              <BuildingBadge
-                buildingId={user.building_id}
-                buildingName={user.building_name}
-                allBuildings={user.role === 'ADMIN'}
-                size="small"
-              />
-            ) : null}
-            <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
-              <Button type="text" loading={loggingOut} data-testid="user-menu">
-                <Space size={8}>
-                  <Avatar size={28} icon={<UserOutlined />} />
-                  <Typography.Text className="app-header__user-name">
-                    {user?.full_name ?? user?.login}
-                  </Typography.Text>
-                </Space>
-              </Button>
-            </Dropdown>
-          </Space>
-        </Flex>
-      </Header>
+        <Content className="app-content">
+          <div className="app-content__inner">
+            <Outlet />
+          </div>
+        </Content>
 
-      {buildingMissing ? (
-        <Alert
-          type="warning"
-          banner
-          showIcon
-          message="Здание не назначено, обратитесь к администратору"
-          description="Список заявок и создание заявок недоступны, пока сотруднику не назначено здание."
-          data-testid="building-missing-banner"
-        />
-      ) : null}
-
-      <Content className="app-content">
-        <div className="app-content__inner">
-          <Outlet />
-        </div>
-      </Content>
-
-      <Footer className="app-footer">
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          © {new Date().getFullYear()} {APP_NAME}. Дедлайны и просрочка рассчитываются на сервере.
-        </Typography.Text>
-      </Footer>
-    </Layout>
+        <Footer className="app-footer">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            © {new Date().getFullYear()} {APP_NAME}. Дедлайны и просрочка рассчитываются на сервере.
+          </Typography.Text>
+        </Footer>
+      </Layout>
+    </PushProvider>
   );
 }
