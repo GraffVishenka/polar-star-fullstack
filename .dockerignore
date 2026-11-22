@@ -1,0 +1,18 @@
+# Контекст сборки API — только backend/ и openapi/ (см. backend/Dockerfile).
+.git
+.gitignore
+.worktrees
+.tools
+.cache
+.env
+.env.*
+frontend
+node_modules
+**/node_modules
+data
+uploads
+bin
+dist
+*.log
+*.exe
+*.test

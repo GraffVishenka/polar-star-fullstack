@@ -3,3 +3,7 @@
 onlyBuiltDependencies:
   - esbuild
   - msw
+# pnpm 11 по умолчанию переустанавливает зависимости перед каждым скриптом;
+# в ограниченной песочнице это падает на ignored-builds. Ставим зависимости явно.
+verifyDepsBeforeRun: false
+strictDepBuilds: false

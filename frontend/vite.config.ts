@@ -51,6 +51,9 @@ export default defineConfig({
     },
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // jsdom + antd + MSW: страницы с несколькими запросами рендерятся не мгновенно.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist', 'coverage', 'e2e'],
     restoreMocks: true,

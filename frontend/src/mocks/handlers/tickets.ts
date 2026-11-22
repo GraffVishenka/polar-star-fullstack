@@ -219,6 +219,10 @@ export const ticketHandlers = [
     }
 
     if (body.deadline !== undefined) {
+      // TICKET-9: дедлайн меняет только ADMIN; формат YYYY-MM-DD, прошлое допустимо.
+      if (body.deadline !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(body.deadline))) {
+        return validation('Дедлайн в формате YYYY-MM-DD', { deadline: 'YYYY-MM-DD' });
+      }
       ticket.deadline = body.deadline === null ? null : String(body.deadline);
     }
 

@@ -6,7 +6,9 @@ import ruRU from 'antd/locale/ru_RU';
 import { render, type RenderOptions } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { AuthUser } from '@/api/types';
+import { setAccessToken } from '@/api/client';
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext';
+import { startRefreshSession } from '@/mocks/auth';
 
 export function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -51,6 +53,26 @@ export function makeAuthValue(overrides: Partial<AuthContextValue> = {}): AuthCo
 export function makeAnonymousAuthValue(): AuthContextValue {
   return makeAuthValue({ status: 'anonymous', user: null });
 }
+
+/**
+ * Авторизует MSW-сессию как пользователя с указанным id: выставляет Bearer-токен
+ * и «refresh-cookie» моков. Нужно для тестов защищённых экранов (Ф2+).
+ */
+export function authenticateAs(userId: number): void {
+  setAccessToken(`mock-access-token-${userId}`);
+  startRefreshSession(userId);
+}
+
+export const ADMIN_AUTH = makeAuthUser({
+  id: 1,
+  login: 'admin',
+  full_name: 'Администратор Системы',
+  role: 'ADMIN',
+  building_id: null,
+  building_name: null,
+});
+
+export const USER_AUTH = makeAuthUser({ id: 2, login: 'user' });
 
 export interface ProviderOptions {
   route?: string;

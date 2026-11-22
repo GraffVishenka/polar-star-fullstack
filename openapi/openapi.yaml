@@ -1,0 +1,3294 @@
+openapi: 3.0.3
+info:
+  title: Заявки · База знаний · Оборудование — API
+  version: 0.1.0
+  description: |
+    Единый контракт внутреннего приложения: заявки, база знаний, оборудование,
+    авторизация и администрирование (PLAN.md §3.13).
+
+    ## Общие правила
+    - Все даты (DATE) передаются строкой `YYYY-MM-DD`, даты-время — RFC 3339 с offset.
+      Дедлайны, «сегодня» и просрочка считаются сервером в часовом поясе приложения
+      (`timezone`, по умолчанию `Asia/Yekaterinburg`); клиент только отображает (NFR-7).
+    - Ошибки всегда имеют формат `{"code","message","details","request_id"}`;
+      `details` — объект (может быть пустым). Код `request_id` совпадает с заголовком
+      `X-Request-ID` и пишется в JSON-логи (NFR-4).
+    - Авторизация: `Authorization: Bearer <access_token>`. Access-токен живёт 15 минут.
+      Refresh-токен передаётся только в httpOnly cookie `refresh_token` (path=/api/auth,
+      SameSite=Lax, 7 дней) и в теле ответа не появляется (AUTH-2).
+    - Ограничение видимости заявок по зданию действует только на заявки: USER получает
+      `404` вместо `403` для чужих заявок, чтобы не раскрывать их существование (TICKET-7).
+    - У пользователя с `must_change_password=true` все маршруты, кроме
+      `GET /api/auth/me`, `POST /api/auth/password`, `POST /api/auth/logout`,
+      отвечают `428 PASSWORD_CHANGE_REQUIRED` (AUTH-4).
+    - Эндпоинты, помеченные `501`, — замороженные заглушки: маршрут и права уже
+      зафиксированы, реализация появится в следующих блоках.
+servers:
+  - url: http://localhost:8080
+    description: Локальный API (docker compose)
+  - url: /
+    description: Текущий origin (reverse proxy, HTTPS)
+tags:
+  - name: Auth
+    description: Вход, ротация сессии, профиль и смена пароля (AUTH-1..AUTH-9)
+  - name: Public
+    description: Публичный периметр для анонимных посетителей (PUB-1..PUB-7)
+  - name: Tickets
+    description: Заявки для авторизованных (TICKET-1..TICKET-16)
+  - name: Files
+    description: Загрузка и выдача медиа (Б3)
+  - name: KB
+    description: База знаний (KB-1..KB-8)
+  - name: Users
+    description: Пользователи и назначение исполнителей (AUTH-4..AUTH-9)
+  - name: Stats
+    description: Статистика сотрудников (STATS-1..STATS-4)
+  - name: Buildings
+    description: Здания и склады (EQ-1, EQ-6)
+  - name: Equipment
+    description: Учёт оборудования (EQ-2..EQ-8)
+  - name: Settings
+    description: Настройки, справочники и праздники (CAL-1..CAL-4)
+  - name: Push
+    description: Web Push подписки (NOTIF-1..NOTIF-7)
+  - name: Trash
+    description: Корзина и восстановление (TRASH-1..TRASH-5)
+  - name: System
+    description: Health-check и документация (NFR-4)
+security: []
+paths:
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Вход по логину и паролю
+      description: |
+        AUTH-1: argon2id-проверка пароля. Неверная пара и заблокированный аккаунт дают
+        одинаковый `401 INVALID_CREDENTIALS` без раскрытия существования логина.
+        AUTH-3: 10 неудачных попыток на пару login+IP за 10 минут → `429` + `Retry-After`.
+        При успехе в Set-Cookie кладётся refresh-токен (httpOnly, SameSite=Lax,
+        path=/api/auth, 7 дней), в теле — access-токен и профиль.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkSession'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refresh
+      summary: Ротация сессии по refresh-cookie
+      description: |
+        AUTH-2: refresh-токен берётся из cookie. При каждом refresh старый токен
+        отзывается, выпускается новый (ротация). Повторное использование старого
+        токена → `401` и отзыв всей цепочки; клиент должен войти заново.
+      parameters:
+        - $ref: '#/components/parameters/RefreshCookie'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkSession'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Выход из текущей сессии
+      description: Отзывает refresh-токен из cookie и очищает cookie. Идемпотентно; доступно при `must_change_password`.
+      parameters:
+        - $ref: '#/components/parameters/RefreshCookie'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      operationId: me
+      summary: Профиль текущего пользователя
+      description: AUTH-6 — пользователь перечитывается из БД; заблокированный аккаунт получает `401`.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          $ref: '#/components/responses/OkUser'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/auth/password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Смена своего пароля
+      description: |
+        AUTH-5: требуются текущий пароль и новый (8..128 символов). После смены флаг
+        `must_change_password` снимается, прочие refresh-сессии отзываются.
+        Доступно при `must_change_password` (AUTH-4).
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PasswordChangeRequest'}
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/public/buildings:
+    get:
+      tags: [Public]
+      operationId: listPublicBuildings
+      summary: Активные здания со счётчиками заявок
+      description: |
+        TICKET-6 / PUB-1: только активные здания с названием и счётчиками `new`,
+        `in_progress`, `deferred`; завершённые не учитываются. Склады и пользователи
+        не отдаются. Лимит — 120 запросов / 10 минут на IP (AUTH-3).
+      responses:
+        '200':
+          $ref: '#/components/responses/OkPublicBuildings'
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/tickets:
+    get:
+      tags: [Public]
+      operationId: listPublicTickets
+      summary: Публичный дашборд здания или сводка по всем зданиям
+      description: |
+        TICKET-5 / PUB-2 / PUB-4: карточки без `description`, комментариев и файлов.
+        Группировка по 3 статусам (`new`, `in_progress`, `deferred`), `done` отсутствует.
+        Без `building_id` — сводка по всем активным зданиям (только чтение).
+      parameters:
+        - name: building_id
+          in: query
+          required: false
+          description: Активное здание; отсутствует — сводка по всем зданиям.
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkPublicTickets'
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Public]
+      operationId: createPublicTicket
+      summary: Создание заявки анонимным посетителем
+      description: |
+        TICKET-4 / TICKET-13 / PUB-5: `building_id` обязателен; неактивное или
+        несуществующее здание → `404`. Дедлайн считается сервером как N рабочих дней
+        (TICKET-3). В ответе один раз выдаётcs `access_token` для бессрочной ссылки
+        `/t/{token}`; в БД хранится только SHA-256.
+        Лимит — 5 запросов / 10 минут на IP (AUTH-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PublicTicketCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedPublicTicket'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/tickets/{token}:
+    get:
+      tags: [Public]
+      operationId: getPublicTicket
+      summary: Карточка заявки по токену доступа
+      description: |
+        TICKET-13 / PUB-6: доступна только эта заявка. Чужой/битый токен → `404`
+        (существование не раскрывается). Токен бессрочный.
+      parameters:
+        - $ref: '#/components/parameters/TokenPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkPublicTicket'
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/tickets/{token}/comments:
+    post:
+      tags: [Public]
+      operationId: createPublicComment
+      summary: Комментарий анонима к своей заявке
+      description: |
+        TICKET-14 / PUB-6: текст до 3000 символов (может быть пустым при наличии
+        вложения), до 5 вложений. Автор — имя анонима из заявки.
+      parameters:
+        - $ref: '#/components/parameters/TokenPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CommentCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedComment'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/tickets/{token}/export.docx:
+    get:
+      tags: [Public]
+      operationId: exportPublicTicketDocx
+      summary: Word-заявка по токену
+      description: |-
+        DOC-1: `.docx` по шаблону, `Content-Disposition: attachment`, `Cache-Control: no-store`.
+      parameters:
+        - $ref: '#/components/parameters/TokenPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/BinaryDocx'
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/files/{id}:
+    get:
+      tags: [Public]
+      operationId: getPublicFile
+      summary: Файл заявки по токену доступа
+      description: |
+        TICKET-13 / Б3: доступ только к файлу своей заявки по токену. Поддерживается
+        Range (`206 Partial Content`) для видео. Заголовки `Content-Disposition`,
+        `Accept-Ranges`, `nosniff`.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: token
+          in: query
+          required: true
+          description: Токен анонимной заявки.
+          schema: {type: string}
+      responses:
+        '200':
+          $ref: '#/components/responses/BinaryFile'
+        '206':
+          $ref: '#/components/responses/BinaryFileRange'
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/kb/tree:
+    get:
+      tags: [Public]
+      operationId: getPublicKbTree
+      summary: Публичное дерево базы знаний
+      description: |
+        KB-7 / KB-8 / PUB-7: только публичные корневые разделы и их потомки, сортировка
+        `sort_order, title`. Дерево отдаётся одним запросом.
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbTree'
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/kb/nodes/{id}:
+    get:
+      tags: [Public]
+      operationId: getPublicKbNode
+      summary: Публичная статья базы знаний
+      description: |-
+        KB-7: прямой запрос скрытого узла → `404`. Медиа внутри HTML выдаются через `/api/public/files`.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbNode'
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/tickets:
+    get:
+      tags: [Tickets]
+      operationId: listTickets
+      summary: Список заявок с фильтрами и пагинацией
+      description: |
+        TICKET-7 / TICKET-15 / TICKET-16: USER видит только заявки своего здания
+        (фильтр `building_id` принудительно равен его зданию); ADMIN видит все.
+        Фильтры: мультивыбор статусов, исполнитель, вид проблемы, здание, диапазон дат,
+        поиск по заявителю/кабинету. Пагинация серверная, `size` ≤ 100, ответ содержит `total`.
+        `is_overdue` считает сервер в `timezone`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Мультивыбор статусов.
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/TicketStatus'}
+          style: form
+          explode: true
+        - name: executor_id
+          in: query
+          description: Исполнитель.
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: problem_type_id
+          in: query
+          description: Вид проблемы.
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: building_id
+          in: query
+          description: Здание; у USER игнорируется и подменяется его зданием.
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: date_from
+          in: query
+          description: Начало периода по `created_at` (DATE в timezone).
+          schema: {type: string, format: date}
+        - name: date_to
+          in: query
+          description: Конец периода по `created_at` (включительно).
+          schema: {type: string, format: date}
+        - name: search
+          in: query
+          description: Поиск по `applicant_name` и `cabinet`.
+          schema: {type: string, maxLength: 120}
+        - name: sort
+          in: query
+          schema: {type: string, enum: [created_at, deadline], default: created_at}
+        - name: order
+          in: query
+          schema: {type: string, enum: [asc, desc], default: desc}
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkTicketList'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Tickets]
+      operationId: createTicket
+      summary: Создание заявки авторизованным пользователем
+      description: |
+        TICKET-2 / TICKET-3 / TICKET-8: здание обязательно. USER создаёт только в своём
+        здании (иначе `404`), ADMIN — в любом (неактивное → `404`). Дедлайн считается
+        сервером (N рабочих дней); исполнитель по умолчанию пуст.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TicketCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/OkTicket'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/tickets/{id}:
+    get:
+      tags: [Tickets]
+      operationId: getTicket
+      summary: Карточка заявки
+      description: |-
+        TICKET-7: USER — только заявка своего здания (иначе `404`), ADMIN — любая.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkTicket'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    patch:
+      tags: [Tickets]
+      operationId: updateTicket
+      summary: Изменение заявки
+      description: |
+        TICKET-8..TICKET-11:
+        - USER назначает только себя, иначе `403 ASSIGN_OTHER_USER`; ADMIN — USER из
+          здания заявки или ADMIN (`422 EXECUTOR_WRONG_BUILDING`), либо снимает исполнителя.
+        - Статус меняет USER своего здания и ADMIN; `done` проставляет `completed_at`,
+          выход из `done` — обнуляет (TICKET-10).
+        - Дедлайн и здание меняет только ADMIN (TICKET-9). При смене здания USER-исполнитель
+          из другого здания сбрасывается, ответ содержит `executor_reset: true`;
+          ADMIN-исполнитель сохраняется.
+        - Правка полей USER'ом — только если он исполнитель (`403 NOT_EXECUTOR`).
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TicketUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkTicketUpdate'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    delete:
+      tags: [Tickets]
+      operationId: deleteTicket
+      summary: Удаление заявки в корзину
+      description: |-
+        TICKET-12: только ADMIN; заявка помечается `deleted_at` и восстанавливается через `/api/admin/trash`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/tickets/{id}/export.docx:
+    get:
+      tags: [Tickets]
+      operationId: exportTicketDocx
+      summary: Word-заявка для авторизованного
+      description: |-
+        DOC-1: USER — только своё здание, ADMIN — любое. `Cache-Control: no-store`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/BinaryDocx'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/tickets/{id}/comments:
+    get:
+      tags: [Tickets]
+      operationId: listTicketComments
+      summary: Комментарии заявки
+      description: |-
+        TICKET-14: плоский список, по 50 на страницу, с вложениями.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkCommentList'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Tickets]
+      operationId: createTicketComment
+      summary: Комментарий к заявке
+      description: |-
+        TICKET-14: текст до 3000 символов (может быть пустым при вложении), до 5 вложений.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CommentCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedComment'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/files:
+    post:
+      tags: [Files]
+      operationId: uploadFile
+      summary: Загрузка файла
+      description: |
+        Б3: multipart/form-data, magic bytes, лимиты 10 МБ фото / 200 МБ видео.
+        Неверный MIME → `415`, превышение лимита → `413`.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, scope]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                scope:
+                  type: string
+                  enum: [ticket, kb]
+                  description: Область использования файла (проверка прав при выдаче).
+                ticket_id:
+                  type: integer
+                  format: int64
+                  description: Заявка для scope=ticket.
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedFile'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/files/{id}:
+    get:
+      tags: [Files]
+      operationId: getFile
+      summary: Файл по id (с проверкой прав)
+      description: |-
+        Б3: выдача медиа под проверкой прав; Range поддерживается для видео.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/BinaryFile'
+        '206':
+          $ref: '#/components/responses/BinaryFileRange'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/kb/tree:
+    get:
+      tags: [KB]
+      operationId: getKbTree
+      summary: Дерево базы знаний
+      description: |-
+        KB-8: всё дерево одним запросом, сортировка `sort_order, title`, вложенность не ограничена. USER/ADMIN видят скрытые разделы.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbTree'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/kb/nodes:
+    post:
+      tags: [KB]
+      operationId: createKbNode
+      summary: Создание узла базы знаний
+      description: |-
+        KB-1..KB-3: создание доступно любому авторизованному; `content_html` санитизируется.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/KbNodeCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedKbNode'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/kb/nodes/{id}:
+    get:
+      tags: [KB]
+      operationId: getKbNode
+      summary: Узел базы знаний
+      description: |-
+        KB-1 / KB-5: статья с `content_html`; ссылки на медиа проверяются на существование (`400 INVALID_MEDIA_REF` при создании/правке).
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbNode'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    patch:
+      tags: [KB]
+      operationId: updateKbNode
+      summary: Правка узла
+      description: |
+        KB-1..KB-3, KB-6: любой авторизованный. Цикл при смене `parent_id` →
+        `409 CYCLE_DETECTED`; родитель удалён → `400`. `content_html` санитизируется.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/KbNodeUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbNode'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    delete:
+      tags: [KB]
+      operationId: deleteKbNode
+      summary: Удаление узла в корзину
+      description: |-
+        KB-3: только ADMIN, каскадно с поддеревом; ответ содержит число потомков.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbDelete'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/kb/nodes/{id}/move:
+    post:
+      tags: [KB]
+      operationId: moveKbNode
+      summary: Перемещение узла (drag-n-drop)
+      description: |-
+        KB-6: `{parent_id, before_node_id?}`, переиндексация `sort_order` с шагом 10. Цикл → `409 CYCLE_DETECTED`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/KbMoveRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbNode'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/kb/nodes/{id}/visibility:
+    patch:
+      tags: [KB]
+      operationId: setKbNodeVisibility
+      summary: Тумблер видимости скрытой секции
+      description: |-
+        KB-7: только ADMIN и только для корневых узлов; потомки наследуют видимость.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/KbVisibilityRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkKbNode'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/users/assignable:
+    get:
+      tags: [Users]
+      operationId: listAssignableUsers
+      summary: Кандидаты в исполнители заявки
+      description: |
+        TICKET-8: для заявки здания A — активные USER здания A и все активные ADMIN;
+        USER из другого здания не попадает.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: ticket_id
+          in: query
+          required: true
+          description: Заявка, для которой подбирается исполнитель.
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkAssignable'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/stats/me:
+    get:
+      tags: [Stats]
+      operationId: getMyStats
+      summary: Личная статистика
+      description: |-
+        STATS-1 / STATS-2: метрики по завершённым заявкам, период по `completed_at` в `timezone`; корзина исключается. Личная статистика не ограничена зданием.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: from
+          in: query
+          description: Начало периода (включительно).
+          schema: {type: string, format: date}
+        - name: to
+          in: query
+          description: Конец периода (включительно).
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkStats'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/stats/export.xlsx:
+    get:
+      tags: [Stats]
+      operationId: exportStats
+      summary: Excel-выгрузка статистики
+      description: |-
+        STATS-3: листы «Сводка» и «Заявки»; свой отчёт — всем, чужой — только ADMIN. Имя `stat_{login}_{from}_{to}.xlsx`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: user_id
+          in: query
+          description: Сотрудник; по умолчанию текущий.
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: building_id
+          in: query
+          description: Фильтр по зданию (только ADMIN).
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: from
+          in: query
+          schema: {type: string, format: date}
+        - name: to
+          in: query
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          $ref: '#/components/responses/BinaryXlsx'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/stats:
+    get:
+      tags: [Stats]
+      operationId: getAdminStats
+      summary: Сводная статистика по сотрудникам
+      description: |-
+        STATS-1: только ADMIN. Без `user_id` возвращает список метрик по сотрудникам с учётом фильтров.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: user_id
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: building_id
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: from
+          in: query
+          schema: {type: string, format: date}
+        - name: to
+          in: query
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkStatsList'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/users:
+    get:
+      tags: [Users]
+      operationId: listAdminUsers
+      summary: Список пользователей
+      description: ADMIN-панель пользователей с фильтрами и пагинацией.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: role
+          in: query
+          schema: {$ref: '#/components/schemas/Role'}
+        - name: building_id
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: is_active
+          in: query
+          schema: {type: boolean}
+        - name: search
+          in: query
+          description: Поиск по ФИО и логину.
+          schema: {type: string, maxLength: 200}
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkAdminUsers'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Users]
+      operationId: createAdminUser
+      summary: Создание пользователя
+      description: |
+        AUTH-4 / AUTH-8: для USER `building_id` обязателен (`422 BUILDING_REQUIRED_FOR_USER`),
+        здание должно быть активным (`422 BUILDING_INACTIVE`). Пароль ≥ 8 символов,
+        флаг `must_change_password=true`.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedUser'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/users/{id}:
+    patch:
+      tags: [Users]
+      operationId: updateAdminUser
+      summary: Изменение пользователя, роли и блокировка
+      description: |
+        AUTH-7 / AUTH-8 / AUTH-9: запрет самоблокировки (`409 CANNOT_MODIFY_SELF`) и
+        понижения последнего активного ADMIN (`409 LAST_ADMIN`). `ADMIN→USER` требует
+        активного здания (`422`), `USER→ADMIN` очищает `building_id`. Блокировка
+        отзывает refresh-токены; API отвечает `401` со следующего запроса (AUTH-6).
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkUser'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/users/{id}/password:
+    post:
+      tags: [Users]
+      operationId: resetUserPassword
+      summary: Сброс пароля пользователя администратором
+      description: |-
+        AUTH-5: без текущего пароля; устанавливает `must_change_password=true`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminPasswordResetRequest'}
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/buildings:
+    get:
+      tags: [Buildings]
+      operationId: listBuildings
+      summary: Здания
+      description: |-
+        EQ-1 / EQ-7: чтение доступно всем авторизованным, включая неактивные (для истории и фильтров).
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: include_inactive
+          in: query
+          description: Включить неактивные здания (по умолчанию true для авторизованных).
+          schema: {type: boolean, default: true}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkBuildings'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Buildings]
+      operationId: createBuilding
+      summary: Создание здания
+      description: |-
+        EQ-1 / EQ-6: только ADMIN.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BuildingCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedBuilding'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/buildings/{id}:
+    patch:
+      tags: [Buildings]
+      operationId: updateBuilding
+      summary: Изменение/деактивация здания
+      description: |-
+        EQ-6: деактивация (`is_active=false`) убирает здание из публичного выбора, формы заявки и выбора для сотрудника; история сохраняется.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BuildingUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkBuilding'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    delete:
+      tags: [Buildings]
+      operationId: deleteBuilding
+      summary: Физическое удаление неиспользуемого здания
+      description: |-
+        EQ-6: разрешено только если нет складов, оборудования, закреплённых пользователей и заявок; иначе `409 BUILDING_IN_USE` (рекомендуется деактивация).
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/warehouses:
+    get:
+      tags: [Buildings]
+      operationId: listWarehouses
+      summary: Склады/кабинеты
+      description: |-
+        EQ-1: чтение всем авторизованным, фильтр по зданию.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: building_id
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkWarehouses'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Buildings]
+      operationId: createWarehouse
+      summary: Создание склада
+      description: |-
+        EQ-1/EQ-6: только ADMIN; имя уникально в рамках здания.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/WarehouseCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedWarehouse'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/warehouses/{id}:
+    patch:
+      tags: [Buildings]
+      operationId: updateWarehouse
+      summary: Переименование склада
+      description: |-
+        EQ-1: только ADMIN; имя уникально в рамках здания.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/WarehouseUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkWarehouse'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    delete:
+      tags: [Buildings]
+      operationId: deleteWarehouse
+      summary: Удаление пустого склада
+      description: |-
+        EQ-6: склад с оборудованием → `409 WAREHOUSE_NOT_EMPTY`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/equipment:
+    get:
+      tags: [Equipment]
+      operationId: listEquipment
+      summary: Список оборудования
+      description: |-
+        EQ-7: фильтры по зданию/складу/типу, поиск по названию, серийному и регистрационному номеру; серверная пагинация. Чтение без ограничения по зданию.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: building_id
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: warehouse_id
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: equipment_type_id
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: search
+          in: query
+          schema: {type: string, maxLength: 200}
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipmentList'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Equipment]
+      operationId: createEquipment
+      summary: Добавление единицы оборудования
+      description: |-
+        EQ-2: склад обязателен; дубль регистрационного номера среди неудалённых → `409 DUPLICATE_REGISTRATION_NUMBER`.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EquipmentCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedEquipment'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/equipment/{id}:
+    get:
+      tags: [Equipment]
+      operationId: getEquipment
+      summary: Карточка оборудования
+      description: |-
+        EQ-7: чтение всем авторизованным.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipment'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    patch:
+      tags: [Equipment]
+      operationId: updateEquipment
+      summary: Правка оборудования
+      description: |-
+        EQ-2: все авторизованные; смена склада через `PATCH` не создаёт журнал — для перемещения используйте `/move`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EquipmentUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipment'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    delete:
+      tags: [Equipment]
+      operationId: deleteEquipment
+      summary: Удаление оборудования в корзину
+      description: |-
+        EQ-6: только ADMIN; восстановление через `/api/admin/trash`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/equipment/{id}/move:
+    post:
+      tags: [Equipment]
+      operationId: moveEquipment
+      summary: Перемещение единицы оборудования
+      description: |
+        EQ-3: транзакция с `SELECT ... FOR UPDATE`, обновление склада и запись журнала.
+        В тот же склад → `409 SAME_WAREHOUSE`; USER в неактивное здание → `422 BUILDING_INACTIVE`
+        (ADMIN может).
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EquipmentMoveRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipmentMove'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/equipment/bulk-move:
+    post:
+      tags: [Equipment]
+      operationId: bulkMoveEquipment
+      summary: Массовое перемещение оборудования
+      description: |
+        EQ-4: 1..200 единиц, одна транзакция, блокировки по возрастанию id, журнал по
+        каждой единице. Несуществующий id → `404` с откатом; > 200 → `422`.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EquipmentBulkMoveRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipmentBulkMove'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/equipment/{id}/movements:
+    get:
+      tags: [Equipment]
+      operationId: listEquipmentMovements
+      summary: Журнал перемещений единицы
+      description: |-
+        EQ-5: неизменяемый журнал, `ORDER BY moved_at DESC`, с именами складов/зданий/пользователя, пагинация.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMovementList'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/warehouses/{id}/inventory.xlsx:
+    get:
+      tags: [Equipment]
+      operationId: exportInventory
+      summary: Ведомость помещения в Excel
+      description: |
+        EQ-8: шапка (приложение, здание, помещение, дата, всего единиц), таблица и блоки
+        «Передал/Принял/М.П.». До 1000 позиций, свыше → `422`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/BinaryXlsx'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Настройки приложения
+      description: |-
+        CAL-1..CAL-3, TICKET-1: имя приложения, срок дедлайна, рабочие дни, праздники, часовой пояс, время напоминаний, push и названия/цвета статусов.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          $ref: '#/components/responses/OkSettings'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    put:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: Изменение настроек
+      description: |
+        CAL-1..CAL-3, TICKET-1: `deadline_days` 1..30, `timezone` — валидный IANA-идентификатор,
+        `deadline_reminder_time` — `HH:MM`, `workdays` — непустая маска. Изменения влияют на
+        новые заявки, существующие дедлайны не пересчитываются (CAL-5).
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SettingsUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkSettings'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/problem-types:
+    get:
+      tags: [Settings]
+      operationId: listProblemTypes
+      summary: Виды проблем
+      description: Справочник `problem_types`; чтение — ADMIN (публично не отдаётся).
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          $ref: '#/components/responses/OkProblemTypes'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Settings]
+      operationId: createProblemType
+      summary: Создание вида проблемы
+      description: ADMIN; имя уникально.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DictionaryItemCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedProblemType'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/problem-types/{id}:
+    patch:
+      tags: [Settings]
+      operationId: updateProblemType
+      summary: Правка вида проблемы
+      description: ADMIN; деактивация вместо удаления, если справочник используется.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DictionaryItemUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkProblemType'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    delete:
+      tags: [Settings]
+      operationId: deleteProblemType
+      summary: Удаление/деактивация вида проблемы
+      description: ADMIN.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/equipment-types:
+    get:
+      tags: [Settings]
+      operationId: listEquipmentTypes
+      summary: Типы оборудования
+      description: Справочник `equipment_types`.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipmentTypes'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Settings]
+      operationId: createEquipmentType
+      summary: Создание типа оборудования
+      description: ADMIN; имя уникально.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DictionaryItemCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedEquipmentType'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/equipment-types/{id}:
+    patch:
+      tags: [Settings]
+      operationId: updateEquipmentType
+      summary: Правка типа оборудования
+      description: ADMIN.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DictionaryItemUpdateRequest'}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEquipmentType'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    delete:
+      tags: [Settings]
+      operationId: deleteEquipmentType
+      summary: Удаление/деактивация типа оборудования
+      description: ADMIN.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/holidays:
+    get:
+      tags: [Settings]
+      operationId: listHolidays
+      summary: Праздники рабочего календаря
+      description: |-
+        CAL-1: список исключаемых дат.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: year
+          in: query
+          description: Фильтр по году.
+          schema: {type: integer, minimum: 2000, maximum: 2100}
+      responses:
+        '200':
+          $ref: '#/components/responses/OkHolidays'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+    post:
+      tags: [Settings]
+      operationId: createHoliday
+      summary: Добавление праздника
+      description: |-
+        CAL-1: дата уникальна (повтор → `409`).
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HolidayCreateRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedHoliday'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/holidays/{id}:
+    delete:
+      tags: [Settings]
+      operationId: deleteHoliday
+      summary: Удаление праздника
+      description: ADMIN.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/push/public-key:
+    get:
+      tags: [Push]
+      operationId: getPushPublicKey
+      summary: VAPID public key
+      description: |-
+        NOTIF-1 / NOTIF-5: ключ для `pushManager.subscribe`.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          $ref: '#/components/responses/OkPushPublicKey'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/push/subscriptions:
+    post:
+      tags: [Push]
+      operationId: createPushSubscription
+      summary: Сохранение push-подписки устройства
+      description: |-
+        NOTIF-1: `endpoint` уникален; получатели — только USER/ADMIN.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PushSubscriptionRequest'}
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedPushSubscription'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/push/subscriptions/{id}:
+    delete:
+      tags: [Push]
+      operationId: deletePushSubscription
+      summary: Отключение push-подписки
+      description: |-
+        NOTIF-5: удаление/деактивация своей подписки.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/trash:
+    get:
+      tags: [Trash]
+      operationId: listTrash
+      summary: Корзина
+      description: |-
+        TRASH-1: дата удаления, кто удалил, краткое описание; фильтр по типу.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/TrashType'}
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkTrash'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/trash/{type}/{id}/restore:
+    post:
+      tags: [Trash]
+      operationId: restoreTrashItem
+      summary: Восстановление из корзины
+      description: |
+        TRASH-2: заявка возвращается со статусом и зданием (деактивированное здание —
+        с предупреждением); узел БЗ — только при живом родителе; оборудование — при живом
+        складе; конфликт регистрационного номера → `409`.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/TypePath'
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkTrashRestore'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/admin/trash/{type}/{id}:
+    delete:
+      tags: [Trash]
+      operationId: purgeTrashItem
+      summary: Окончательное удаление
+      description: |-
+        TRASH-3: физическое удаление с комментариями и файлами, необратимо.
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/TypePath'
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '428': {$ref: '#/components/responses/PasswordChangeRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '501': {$ref: '#/components/responses/NotImplemented'}
+  /health:
+    get:
+      tags: [System]
+      operationId: health
+      summary: Liveness
+      description: |-
+        NFR-4: процесс жив; не проверяет БД.
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/OkHealth'
+  /health/ready:
+    get:
+      tags: [System]
+      operationId: readiness
+      summary: Readiness
+      description: |-
+        NFR-4: `200`, если БД доступна, иначе `503`.
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReadiness'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableReadiness'
+  /docs:
+    get:
+      tags: [System]
+      operationId: docs
+      summary: Swagger UI
+      description: HTML-страница Swagger UI, загружающая `/openapi.yaml`.
+      security: []
+      responses:
+        '200':
+          description: HTML-страница документации.
+          content:
+            text/html:
+              schema: {type: string}
+  /openapi.yaml:
+    get:
+      tags: [System]
+      operationId: openapiDocument
+      summary: OpenAPI-контракт
+      description: Исходный `openapi.yaml`, отдаваемый API.
+      security: []
+      responses:
+        '200':
+          description: YAML-контракт.
+          content:
+            application/yaml:
+              schema: {type: string}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access-токен JWT HS256 (TTL 15 минут) в заголовке `Authorization: Bearer <token>`.
+        Получается через `POST /api/auth/login`, обновляется через `POST /api/auth/refresh`.
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      description: Идентификатор сущности.
+      schema: {type: integer, format: int64, minimum: 1}
+    TokenPath:
+      name: token
+      in: path
+      required: true
+      description: Токен доступа анонимной заявки (32 случайных байта base64url).
+      schema: {type: string, minLength: 32, maxLength: 128}
+    TypePath:
+      name: type
+      in: path
+      required: true
+      description: Тип сущности корзины.
+      schema: {$ref: '#/components/schemas/TrashType'}
+    PageQuery:
+      name: page
+      in: query
+      description: Номер страницы (с 1).
+      schema: {type: integer, minimum: 1, default: 1}
+    SizeQuery:
+      name: size
+      in: query
+      description: Размер страницы (не более 100).
+      schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+    RefreshCookie:
+      name: refresh_token
+      in: cookie
+      required: false
+      description: httpOnly refresh-cookie (path=/api/auth, SameSite=Lax, 7 дней).
+      schema: {type: string}
+  responses:
+    OkHealth:
+      description: Процесс API доступен.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Health'}
+    OkReadiness:
+      description: Все зависимости доступны.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Readiness'}
+    ServiceUnavailableReadiness:
+      description: Сервис не готов (БД недоступна).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Readiness'}
+    OkSession:
+      description: Успешная аутентификация; refresh-токен установлен в httpOnly cookie.
+      headers:
+        Set-Cookie:
+          description: |
+            `refresh_token=<token>; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=604800`
+            (в production — с `Secure`).
+          schema: {type: string}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AuthSession'}
+    NoContent:
+      description: Успешно, тело отсутствует.
+    OkUser:
+      description: Текущий пользователь.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/User'}
+    OkPublicBuildings:
+      description: Активные здания со счётчиками незавершённых заявок.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/PublicBuilding'}
+    OkPublicTickets:
+      description: Карточки заявок для публичного дашборда (без description и комментариев).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PublicTicketsResponse'}
+    CreatedPublicTicket:
+      description: Заявка создана; `access_token` выдаётся один раз.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PublicTicketCreateResponse'}
+    OkPublicTicket:
+      description: Карточка заявки по токену.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PublicTicketDetail'}
+    CreatedComment:
+      description: Комментарий создан.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TicketComment'}
+    OkCommentList:
+      description: Комментарии заявки.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/CommentListResponse'}
+    OkTicketList:
+      description: Страница заявок.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TicketListResponse'}
+    OkTicket:
+      description: Заявка.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Ticket'}
+    OkTicketUpdate:
+      description: Заявка обновлена; `executor_reset` показывает сброс исполнителя при смене здания.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TicketUpdateResponse'}
+    CreatedFile:
+      description: Файл загружен.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FileInfo'}
+    OkKbTree:
+      description: Дерево базы знаний (без содержимого статей).
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/KbTreeNode'}
+    OkKbNode:
+      description: Узел базы знаний с содержимым.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/KbNode'}
+    CreatedKbNode:
+      description: Узел создан.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/KbNode'}
+    OkKbDelete:
+      description: Узел удалён в корзину.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/KbDeleteResponse'}
+    OkAssignable:
+      description: Кандидаты в исполнители (USER здания заявки + ADMIN).
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/AssignableUser'}
+    OkAdminUsers:
+      description: Страница пользователей.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/UserListResponse'}
+    CreatedUser:
+      description: Пользователь создан; пароль задан администратором.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/User'}
+    OkStats:
+      description: Метрики сотрудника.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/StatsResponse'}
+    OkStatsList:
+      description: Метрики сотрудников (сводная статистика).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/StatsListResponse'}
+    OkBuildings:
+      description: Здания.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/Building'}
+    CreatedBuilding:
+      description: Здание создано.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Building'}
+    OkBuilding:
+      description: Здание обновлено.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Building'}
+    OkWarehouses:
+      description: Склады.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/Warehouse'}
+    CreatedWarehouse:
+      description: Склад создан.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Warehouse'}
+    OkWarehouse:
+      description: Склад обновлён.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Warehouse'}
+    OkEquipmentList:
+      description: Страница оборудования.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/EquipmentListResponse'}
+    OkEquipment:
+      description: Единица оборудования.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Equipment'}
+    CreatedEquipment:
+      description: Единица оборудования создана.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Equipment'}
+    OkEquipmentMove:
+      description: Перемещение выполнено; журнал дополнен записью.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/EquipmentMoveResponse'}
+    OkEquipmentBulkMove:
+      description: Массовое перемещение выполнено атомарно.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/EquipmentBulkMoveResponse'}
+    OkMovementList:
+      description: Журнал перемещений единицы (DESC).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/EquipmentMovementListResponse'}
+    OkSettings:
+      description: Настройки приложения.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Settings'}
+    OkProblemTypes:
+      description: Виды проблем.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/ProblemType'}
+    CreatedProblemType:
+      description: Вид проблемы создан.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ProblemType'}
+    OkProblemType:
+      description: Вид проблемы обновлён.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ProblemType'}
+    OkEquipmentTypes:
+      description: Типы оборудования.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/EquipmentType'}
+    CreatedEquipmentType:
+      description: Тип оборудования создан.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/EquipmentType'}
+    OkEquipmentType:
+      description: Тип оборудования обновлён.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/EquipmentType'}
+    OkHolidays:
+      description: Праздники.
+      content:
+        application/json:
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/Holiday'}
+    CreatedHoliday:
+      description: Праздник добавлен.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Holiday'}
+    OkPushPublicKey:
+      description: VAPID public key для подписки.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PushPublicKey'}
+    CreatedPushSubscription:
+      description: Подписка сохранена.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PushSubscription'}
+    OkTrash:
+      description: Элементы корзины.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TrashListResponse'}
+    OkTrashRestore:
+      description: Элемент восстановлен.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TrashRestoreResponse'}
+    BinaryDocx:
+      description: Word-документ заявки.
+      headers:
+        Content-Disposition:
+          description: '`attachment; filename="ticket_{id}.docx"`'
+          schema: {type: string}
+        Cache-Control:
+          description: '`no-store`'
+          schema: {type: string}
+      content:
+        application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+          schema: {type: string, format: binary}
+    BinaryXlsx:
+      description: Excel-документ.
+      headers:
+        Content-Disposition:
+          description: '`attachment; filename="..."`'
+          schema: {type: string}
+        Cache-Control:
+          description: '`no-store`'
+          schema: {type: string}
+      content:
+        application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+          schema: {type: string, format: binary}
+    BinaryFile:
+      description: Содержимое файла; MIME соответствует сохранённому типу.
+      headers:
+        Content-Disposition:
+          description: '`inline` или `attachment` в зависимости от типа файла.'
+          schema: {type: string}
+        Accept-Ranges:
+          description: '`bytes`'
+          schema: {type: string}
+        X-Content-Type-Options:
+          description: '`nosniff`'
+          schema: {type: string}
+      content:
+        application/octet-stream:
+          schema: {type: string, format: binary}
+    BinaryFileRange:
+      description: Частичное содержимое файла (Range).
+      headers:
+        Content-Range:
+          schema: {type: string}
+        Accept-Ranges:
+          schema: {type: string}
+      content:
+        application/octet-stream:
+          schema: {type: string, format: binary}
+    BadRequest:
+      description: Некорректный запрос или тело.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unauthorized:
+      description: Требуется авторизация (или недействительная сессия).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: Недостаточно прав.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: Ресурс не найден (в том числе чужая заявка — TICKET-7).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Conflict:
+      description: Конфликт состояния (409).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ValidationError:
+      description: Ошибка валидации (422); `details` содержит поля.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    PasswordChangeRequired:
+      description: Требуется смена временного пароля (428, AUTH-4).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    TooManyRequests:
+      description: Превышен лимит запросов (429, AUTH-3).
+      headers:
+        Retry-After:
+          description: Секунды до следующей возможной попытки.
+          schema: {type: integer, minimum: 1}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    PayloadTooLarge:
+      description: Превышен допустимый размер (413).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    UnsupportedMediaType:
+      description: Недопустимый тип файла (415, Б3).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    InternalError:
+      description: Внутренняя ошибка сервера (500).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotImplemented:
+      description: |
+        Маршрут заморожен контрактом, реализация появится в следующих блоках (Б2..Б12).
+        Права (401/403/428) проверяются уже сейчас.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+  schemas:
+    Error:
+      type: object
+      required: [code, message, details, request_id]
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          description: Человекочитаемое сообщение на русском.
+          example: Заявка не найдена
+        details:
+          type: object
+          additionalProperties: true
+          description: Машиночитаемые детали (обычно пустой объект).
+          example: {}
+        request_id:
+          type: string
+          description: Идентификатор запроса из заголовка `X-Request-ID` (NFR-4).
+          example: 7f3c2a9d4b1e4c8fa5d6e7f8091a2b3c
+    ErrorCode:
+      type: string
+      description: Типизированный код ошибки.
+      enum:
+        - VALIDATION_ERROR
+        - INVALID_JSON
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - CONFLICT
+        - METHOD_NOT_ALLOWED
+        - PAYLOAD_TOO_LARGE
+        - UNSUPPORTED_MEDIA_TYPE
+        - RATE_LIMITED
+        - INTERNAL_ERROR
+        - NOT_IMPLEMENTED
+        - SERVICE_UNAVAILABLE
+        - INVALID_CREDENTIALS
+        - INVALID_REFRESH_TOKEN
+        - PASSWORD_CHANGE_REQUIRED
+        - INVALID_CURRENT_PASSWORD
+        - BUILDING_REQUIRED_FOR_USER
+        - BUILDING_INACTIVE
+        - BUILDING_NOT_ASSIGNED
+        - CANNOT_MODIFY_SELF
+        - LAST_ADMIN
+        - DUPLICATE_LOGIN
+        - ASSIGN_OTHER_USER
+        - EXECUTOR_WRONG_BUILDING
+        - NOT_EXECUTOR
+        - INVALID_STATUS
+        - CYCLE_DETECTED
+        - INVALID_MEDIA_REF
+        - SAME_WAREHOUSE
+        - DUPLICATE_REGISTRATION_NUMBER
+        - WAREHOUSE_NOT_EMPTY
+        - BUILDING_IN_USE
+    Role:
+      type: string
+      enum: [USER, ADMIN]
+    TicketStatus:
+      type: string
+      description: |
+        Коды статусов фиксированы (TICKET-1); названия и цвета настраиваются и
+        отдаются в `status_label` / `status_color`.
+      enum: [new, in_progress, deferred, done]
+    TrashType:
+      type: string
+      enum: [ticket, kb, equipment]
+    Workday:
+      type: integer
+      description: День недели ISO-8601 (1=Пн … 7=Вс).
+      enum: [1, 2, 3, 4, 5, 6, 7]
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: admin
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          format: password
+    AuthSession:
+      type: object
+      required: [access_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+          description: JWT access-токен (HS256, TTL 15 минут).
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: Время жизни access-токена в секундах.
+          example: 900
+        user:
+          $ref: '#/components/schemas/User'
+    PasswordChangeRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          format: password
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          format: password
+    User:
+      type: object
+      required:
+        [id, login, full_name, role, is_active, must_change_password, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        login: {type: string, maxLength: 64}
+        full_name: {type: string, maxLength: 200}
+        role: {$ref: '#/components/schemas/Role'}
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Здание USER; у ADMIN всегда null.
+        building_name:
+          type: string
+          nullable: true
+        is_active: {type: boolean}
+        must_change_password:
+          type: boolean
+          description: true — до смены пароля прочие маршруты отвечают 428.
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Health:
+      type: object
+      required: [status, app, version, time, uptime_seconds]
+      properties:
+        status: {type: string, enum: [ok]}
+        app: {type: string, example: polar-star-service}
+        version: {type: string, example: 0.1.0}
+        time: {type: string, format: date-time}
+        uptime_seconds: {type: integer, format: int64}
+    Readiness:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ready, unavailable]
+        checks:
+          type: object
+          required: [database]
+          properties:
+            database:
+              type: string
+              enum: [ok, down]
+    Building:
+      type: object
+      required: [id, name, is_active, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string, maxLength: 200}
+        address:
+          type: string
+          maxLength: 500
+          nullable: true
+        is_active:
+          type: boolean
+          description: Неактивное здание скрыто из публичного выбора и форм, но остаётся в истории (EQ-6).
+        created_at: {type: string, format: date-time}
+    BuildingCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        address:
+          type: string
+          maxLength: 500
+          nullable: true
+    BuildingUpdateRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        address:
+          type: string
+          maxLength: 500
+          nullable: true
+        is_active: {type: boolean}
+    PublicBuilding:
+      type: object
+      required: [id, name, counts]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        counts:
+          type: object
+          required: [new, in_progress, deferred]
+          properties:
+            new: {type: integer, minimum: 0}
+            in_progress: {type: integer, minimum: 0}
+            deferred: {type: integer, minimum: 0}
+    Warehouse:
+      type: object
+      required: [id, building_id, name, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        building_id: {type: integer, format: int64}
+        building_name: {type: string}
+        name: {type: string, maxLength: 200}
+        created_at: {type: string, format: date-time}
+    WarehouseCreateRequest:
+      type: object
+      required: [building_id, name]
+      properties:
+        building_id: {type: integer, format: int64, minimum: 1}
+        name: {type: string, minLength: 1, maxLength: 200}
+    WarehouseUpdateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+    PublicTicketCard:
+      type: object
+      description: Поля публичной карточки строго по TICKET-5 (без description и вложений).
+      required:
+        [id, building_id, building_name, applicant_name, cabinet, problem_type_name,
+         status, status_label, status_color, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        building_id: {type: integer, format: int64}
+        building_name: {type: string}
+        applicant_name: {type: string, maxLength: 120}
+        cabinet: {type: string, maxLength: 32}
+        problem_type_name: {type: string}
+        status: {$ref: '#/components/schemas/TicketStatus'}
+        status_label: {type: string}
+        status_color: {type: string, example: '#1677ff'}
+        deadline:
+          type: string
+          format: date
+          nullable: true
+        executor_name:
+          type: string
+          nullable: true
+        created_at: {type: string, format: date-time}
+    PublicTicketsResponse:
+      type: object
+      required: [items]
+      properties:
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: null — сводка по всем активным зданиям.
+        building_name:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/PublicTicketCard'}
+    PublicTicketDetail:
+      allOf:
+        - $ref: '#/components/schemas/PublicTicketCard'
+        - type: object
+          required: [description, comments]
+          properties:
+            description: |-
+              {type: string, maxLength: 5000}
+            completed_at:
+              type: string
+              format: date-time
+              nullable: true
+            comments:
+              type: array
+              description: Комментарии заявки (плоский список).
+              items: {$ref: '#/components/schemas/TicketComment'}
+    PublicTicketCreateRequest:
+      type: object
+      required: [building_id, applicant_name, cabinet, problem_type_id, description]
+      properties:
+        building_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Обязателен (TICKET-4); неактивное/несуществующее → 404.
+        applicant_name: {type: string, minLength: 1, maxLength: 120}
+        cabinet: {type: string, minLength: 1, maxLength: 32}
+        problem_type_id: {type: integer, format: int64, minimum: 1}
+        description: |-
+          {type: string, minLength: 1, maxLength: 5000}
+    PublicTicketCreateResponse:
+      type: object
+      required: [ticket, access_token, access_url]
+      properties:
+        ticket:
+          $ref: '#/components/schemas/PublicTicketDetail'
+        access_token:
+          type: string
+          description: Токен доступа (32 случайных байта base64url); в БД — SHA-256, выдаётся один раз.
+        access_url:
+          type: string
+          description: Относительная ссылка на карточку.
+          example: /t/7Kf3...
+    Ticket:
+      type: object
+      required:
+        [id, building_id, building_name, applicant_name, cabinet, problem_type_id,
+         problem_type_name, description, status, status_label, status_color, is_overdue,
+         created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        building_id: {type: integer, format: int64}
+        building_name: {type: string}
+        applicant_name: {type: string, maxLength: 120}
+        cabinet: {type: string, maxLength: 32}
+        problem_type_id: {type: integer, format: int64}
+        problem_type_name: {type: string}
+        description: |-
+          {type: string, maxLength: 5000}
+        deadline:
+          type: string
+          format: date
+          nullable: true
+          description: Считается сервером по рабочему календарю (TICKET-3).
+        executor_id:
+          type: integer
+          format: int64
+          nullable: true
+        executor_name:
+          type: string
+          nullable: true
+        status: {$ref: '#/components/schemas/TicketStatus'}
+        status_label: {type: string}
+        status_color: {type: string, example: '#1677ff'}
+        is_overdue:
+          type: boolean
+          description: Рассчитывается сервером в timezone (TICKET-16).
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    TicketListItem:
+      type: object
+      required:
+        [id, building_id, building_name, applicant_name, cabinet, problem_type_name,
+         status, status_label, status_color, is_overdue, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        building_id: {type: integer, format: int64}
+        building_name: {type: string}
+        applicant_name: {type: string, maxLength: 120}
+        cabinet: {type: string, maxLength: 32}
+        problem_type_name: {type: string}
+        status: {$ref: '#/components/schemas/TicketStatus'}
+        status_label: {type: string}
+        status_color: {type: string}
+        deadline:
+          type: string
+          format: date
+          nullable: true
+        executor_id:
+          type: integer
+          format: int64
+          nullable: true
+        executor_name:
+          type: string
+          nullable: true
+        is_overdue: {type: boolean}
+        created_at: {type: string, format: date-time}
+    TicketListResponse:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/TicketListItem'}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        size: {type: integer, minimum: 1, maximum: 100}
+    TicketCreateRequest:
+      type: object
+      required: [applicant_name, cabinet, problem_type_id, description]
+      properties:
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Для USER игнорируется и берётся его здание; для ADMIN обязателен.
+        applicant_name: {type: string, minLength: 1, maxLength: 120}
+        cabinet: {type: string, minLength: 1, maxLength: 32}
+        problem_type_id: {type: integer, format: int64, minimum: 1}
+        description: |-
+          {type: string, minLength: 1, maxLength: 5000}
+        executor_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Необязательное назначение при создании (ADMIN — USER здания заявки или ADMIN).
+    TicketUpdateRequest:
+      type: object
+      description: |
+        Частичное обновление. Поля `deadline` и `building_id` принимает только ADMIN
+        (TICKET-9); `executor_id: null` снимает исполнителя (TICKET-8).
+      properties:
+        applicant_name: {type: string, minLength: 1, maxLength: 120}
+        cabinet: {type: string, minLength: 1, maxLength: 32}
+        problem_type_id: {type: integer, format: int64, minimum: 1}
+        description: |-
+          {type: string, minLength: 1, maxLength: 5000}
+        status: {$ref: '#/components/schemas/TicketStatus'}
+        executor_id:
+          type: integer
+          format: int64
+          nullable: true
+        deadline:
+          type: string
+          format: date
+          nullable: true
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+    TicketUpdateResponse:
+      type: object
+      required: [ticket, executor_reset]
+      properties:
+        ticket:
+          $ref: '#/components/schemas/Ticket'
+        executor_reset:
+          type: boolean
+          description: true, если при смене здания USER-исполнитель из другого здания был сброшен (TICKET-9).
+    FileInfo:
+      type: object
+      required: [id, filename, mime_type, size, scope, url, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        filename: {type: string}
+        mime_type: {type: string}
+        size: {type: integer, format: int64, minimum: 0}
+        scope:
+          type: string
+          enum: [ticket, kb]
+        url:
+          type: string
+          description: |
+            Ссылка на файл: `/api/files/{id}` для авторизованных или
+            `/api/public/files/{id}?token=...` для публичной заявки.
+        created_at: {type: string, format: date-time}
+    CommentCreateRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 3000
+          description: Может быть пустым при наличии вложений (TICKET-14).
+        file_ids:
+          type: array
+          maxItems: 5
+          items: {type: integer, format: int64}
+    TicketComment:
+      type: object
+      required: [id, ticket_id, author_name, text, created_at, files]
+      properties:
+        id: {type: integer, format: int64}
+        ticket_id: {type: integer, format: int64}
+        author_user_id:
+          type: integer
+          format: int64
+          nullable: true
+        author_name: {type: string}
+        text: {type: string, maxLength: 3000}
+        created_at: {type: string, format: date-time}
+        files:
+          type: array
+          items: {$ref: '#/components/schemas/FileInfo'}
+    CommentListResponse:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/TicketComment'}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        size: {type: integer, minimum: 1, maximum: 100}
+    KbNode:
+      type: object
+      required:
+        [id, title, content_html, sort_order, is_hidden_for_anon, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        title: {type: string, minLength: 1, maxLength: 200}
+        content_html:
+          type: string
+          maxLength: 100000
+          description: Санитизированный HTML (KB-4).
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        sort_order: {type: integer}
+        is_hidden_for_anon:
+          type: boolean
+          description: Скрыт ли корневой раздел от анонимов (у потомков наследуется).
+        breadcrumbs:
+          type: array
+          description: Путь от корня до узла (для навигации).
+          items:
+            type: object
+            required: [id, title]
+            properties:
+              id: {type: integer, format: int64}
+              title: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    KbTreeNode:
+      type: object
+      required: [id, title, sort_order, is_hidden_for_anon, children]
+      properties:
+        id: {type: integer, format: int64}
+        title: {type: string}
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        sort_order: {type: integer}
+        is_hidden_for_anon: {type: boolean}
+        children:
+          type: array
+          items: {$ref: '#/components/schemas/KbTreeNode'}
+    KbNodeCreateRequest:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        content_html: {type: string, maxLength: 100000, default: ''}
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        sort_order: {type: integer}
+        is_hidden_for_anon:
+          type: boolean
+          description: Допустимо только для корневых узлов; для потомков игнорируется.
+    KbNodeUpdateRequest:
+      type: object
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        content_html: {type: string, maxLength: 100000}
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        sort_order: {type: integer}
+    KbMoveRequest:
+      type: object
+      required: [parent_id]
+      properties:
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: null — переместить в корень.
+        before_node_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Встать перед указанным узлом; null — в конец.
+    KbVisibilityRequest:
+      type: object
+      required: [is_hidden_for_anon]
+      properties:
+        is_hidden_for_anon: {type: boolean}
+    KbDeleteResponse:
+      type: object
+      required: [deleted_id, deleted_descendants]
+      properties:
+        deleted_id: {type: integer, format: int64}
+        deleted_descendants:
+          type: integer
+          minimum: 0
+          description: Число дочерних узлов, удалённых каскадно (TRASH-5 — не восстанавливаются).
+    AssignableUser:
+      type: object
+      required: [id, login, full_name, role]
+      properties:
+        id: {type: integer, format: int64}
+        login: {type: string}
+        full_name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+        building_name:
+          type: string
+          nullable: true
+    UserCreateRequest:
+      type: object
+      required: [login, full_name, role, password]
+      properties:
+        login:
+          type: string
+          minLength: 3
+          maxLength: 64
+          pattern: '^[A-Za-z0-9._-]+$'
+        full_name: {type: string, minLength: 1, maxLength: 200}
+        role: {$ref: '#/components/schemas/Role'}
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          format: password
+          description: Временный пароль; пользователь обязан сменить его (AUTH-4).
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Обязателен для USER (`422 BUILDING_REQUIRED_FOR_USER`), для ADMIN — null.
+    UserUpdateRequest:
+      type: object
+      properties:
+        full_name: {type: string, minLength: 1, maxLength: 200}
+        role: {$ref: '#/components/schemas/Role'}
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: null очищает закрепление; ADMIN→USER без здания → 422 (AUTH-8).
+        is_active:
+          type: boolean
+          description: false блокирует аккаунт и отзывает refresh-токены (AUTH-6).
+    UserListResponse:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/User'}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        size: {type: integer, minimum: 1, maximum: 100}
+    AdminPasswordResetRequest:
+      type: object
+      required: [new_password]
+      properties:
+        new_password: {type: string, minLength: 8, maxLength: 128, format: password}
+    StatsPeriod:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+          nullable: true
+        to:
+          type: string
+          format: date
+          nullable: true
+    StatsProblemType:
+      type: object
+      required: [name, count]
+      properties:
+        problem_type_id:
+          type: integer
+          format: int64
+          nullable: true
+        name: {type: string}
+        count: {type: integer, minimum: 0}
+    StatsMonth:
+      type: object
+      required: [month, count]
+      properties:
+        month:
+          type: string
+          pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+          example: '2026-11'
+        count: {type: integer, minimum: 0}
+    StatsResponse:
+      type: object
+      required:
+        [user_id, login, full_name, period, total_done, done_in_period,
+         avg_resolution_hours, median_resolution_hours, on_time_percent,
+         overdue_count, by_problem_type, by_month]
+      properties:
+        user_id: {type: integer, format: int64}
+        login: {type: string}
+        full_name: {type: string}
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+        building_name:
+          type: string
+          nullable: true
+        period: {$ref: '#/components/schemas/StatsPeriod'}
+        total_done:
+          type: integer
+          minimum: 0
+          description: Всего завершённых заявок (без корзины).
+        done_in_period: {type: integer, minimum: 0}
+        avg_resolution_hours:
+          type: number
+          format: double
+          nullable: true
+          description: Среднее время выполнения в часах, 0.1 (STATS-2).
+        median_resolution_hours:
+          type: number
+          format: double
+          nullable: true
+        on_time_percent:
+          type: number
+          format: double
+          nullable: true
+          description: null, если завершённых заявок нет (STATS-2).
+        overdue_count: {type: integer, minimum: 0}
+        by_problem_type:
+          type: array
+          items: {$ref: '#/components/schemas/StatsProblemType'}
+        by_month:
+          type: array
+          items: {$ref: '#/components/schemas/StatsMonth'}
+    StatsListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/StatsResponse'}
+    ProblemType:
+      type: object
+      required: [id, name, is_active, sort_order]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string, maxLength: 120}
+        is_active: {type: boolean}
+        sort_order: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EquipmentType:
+      type: object
+      required: [id, name, is_active, sort_order]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string, maxLength: 120}
+        is_active: {type: boolean}
+        sort_order: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    DictionaryItemCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        is_active: {type: boolean, default: true}
+        sort_order: {type: integer, default: 0}
+    DictionaryItemUpdateRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        is_active: {type: boolean}
+        sort_order: {type: integer}
+    Holiday:
+      type: object
+      required: [id, date, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        date: {type: string, format: date}
+        created_at: {type: string, format: date-time}
+    HolidayCreateRequest:
+      type: object
+      required: [date]
+      properties:
+        date: {type: string, format: date}
+    Settings:
+      type: object
+      required:
+        [app_name, deadline_days, workdays, timezone, deadline_reminder_time,
+         push_enabled, statuses]
+      properties:
+        app_name: {type: string, maxLength: 200}
+        deadline_days:
+          type: integer
+          minimum: 1
+          maximum: 30
+          description: N рабочих дней для дедлайна (TICKET-3).
+        workdays:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/Workday'}
+        timezone:
+          type: string
+          description: IANA-идентификатор (CAL-2).
+          example: Asia/Yekaterinburg
+        deadline_reminder_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          example: '10:00'
+        push_enabled: {type: boolean}
+        statuses:
+          type: array
+          description: Названия и цвета 4 фиксированных статусов (TICKET-1).
+          minItems: 4
+          maxItems: 4
+          items: {$ref: '#/components/schemas/StatusSetting'}
+    StatusSetting:
+      type: object
+      required: [code, label, color]
+      properties:
+        code: {$ref: '#/components/schemas/TicketStatus'}
+        label: {type: string, maxLength: 60}
+        color:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          example: '#1677ff'
+    SettingsUpdateRequest:
+      type: object
+      required:
+        [app_name, deadline_days, workdays, timezone, deadline_reminder_time,
+         push_enabled, statuses]
+      properties:
+        app_name: {type: string, minLength: 1, maxLength: 200}
+        deadline_days: {type: integer, minimum: 1, maximum: 30}
+        workdays:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/Workday'}
+        timezone: {type: string, example: Asia/Yekaterinburg}
+        deadline_reminder_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        push_enabled: {type: boolean}
+        statuses:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items: {$ref: '#/components/schemas/StatusSetting'}
+    Equipment:
+      type: object
+      required:
+        [id, name, equipment_type_id, equipment_type_name, serial_number,
+         registration_number, warehouse_id, warehouse_name, building_id, building_name,
+         created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string, maxLength: 200}
+        equipment_type_id: {type: integer, format: int64}
+        equipment_type_name: {type: string}
+        serial_number: {type: string, maxLength: 100}
+        registration_number: {type: string, maxLength: 100}
+        warehouse_id: {type: integer, format: int64}
+        warehouse_name: {type: string}
+        building_id: {type: integer, format: int64}
+        building_name: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+    EquipmentCreateRequest:
+      type: object
+      required:
+        [name, equipment_type_id, serial_number, registration_number, warehouse_id]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        equipment_type_id: {type: integer, format: int64, minimum: 1}
+        serial_number: {type: string, minLength: 1, maxLength: 100}
+        registration_number: {type: string, minLength: 1, maxLength: 100}
+        warehouse_id: {type: integer, format: int64, minimum: 1}
+    EquipmentUpdateRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        equipment_type_id: {type: integer, format: int64, minimum: 1}
+        serial_number: {type: string, minLength: 1, maxLength: 100}
+        registration_number: {type: string, minLength: 1, maxLength: 100}
+        warehouse_id: {type: integer, format: int64, minimum: 1}
+    EquipmentListResponse:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Equipment'}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        size: {type: integer, minimum: 1, maximum: 100}
+    EquipmentMoveRequest:
+      type: object
+      required: [to_warehouse_id]
+      properties:
+        to_warehouse_id: {type: integer, format: int64, minimum: 1}
+        comment:
+          type: string
+          maxLength: 1000
+          nullable: true
+    EquipmentMoveResponse:
+      type: object
+      required: [equipment, movement]
+      properties:
+        equipment: {$ref: '#/components/schemas/Equipment'}
+        movement: {$ref: '#/components/schemas/EquipmentMovement'}
+    EquipmentBulkMoveRequest:
+      type: object
+      required: [equipment_ids, to_warehouse_id]
+      properties:
+        equipment_ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items: {type: integer, format: int64}
+        to_warehouse_id: {type: integer, format: int64, minimum: 1}
+        comment:
+          type: string
+          maxLength: 1000
+          nullable: true
+    EquipmentBulkMoveResponse:
+      type: object
+      required: [moved_count, movements]
+      properties:
+        moved_count: {type: integer, minimum: 0}
+        movements:
+          type: array
+          items: {$ref: '#/components/schemas/EquipmentMovement'}
+    EquipmentMovement:
+      type: object
+      required:
+        [id, equipment_id, from_warehouse_id, to_warehouse_id, moved_by_user_id, moved_at]
+      properties:
+        id: {type: integer, format: int64}
+        equipment_id: {type: integer, format: int64}
+        from_warehouse_id: {type: integer, format: int64}
+        from_warehouse_name: {type: string}
+        from_building_name: {type: string}
+        to_warehouse_id: {type: integer, format: int64}
+        to_warehouse_name: {type: string}
+        to_building_name: {type: string}
+        moved_by_user_id: {type: integer, format: int64}
+        moved_by_name: {type: string}
+        moved_at: {type: string, format: date-time}
+        comment:
+          type: string
+          maxLength: 1000
+          nullable: true
+    EquipmentMovementListResponse:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/EquipmentMovement'}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        size: {type: integer, minimum: 1, maximum: 100}
+    PushPublicKey:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+          description: VAPID public key (base64url).
+    PushSubscriptionKeys:
+      type: object
+      required: [p256dh, auth]
+      properties:
+        p256dh: {type: string}
+        auth: {type: string}
+    PushSubscriptionRequest:
+      type: object
+      required: [endpoint, keys]
+      properties:
+        endpoint:
+          type: string
+          format: uri
+          maxLength: 2048
+        keys:
+          $ref: '#/components/schemas/PushSubscriptionKeys'
+        user_agent:
+          type: string
+          maxLength: 512
+    PushSubscription:
+      type: object
+      required: [id, endpoint, created_at, is_active]
+      properties:
+        id: {type: integer, format: int64}
+        endpoint: {type: string, format: uri}
+        created_at: {type: string, format: date-time}
+        is_active: {type: boolean}
+    TrashItem:
+      type: object
+      required: [type, id, title, deleted_at]
+      properties:
+        type: {$ref: '#/components/schemas/TrashType'}
+        id: {type: integer, format: int64}
+        title: {type: string, description: Краткое описание элемента.}
+        deleted_at: {type: string, format: date-time}
+        deleted_by_user_id:
+          type: integer
+          format: int64
+          nullable: true
+        deleted_by_name:
+          type: string
+          nullable: true
+        building_id:
+          type: integer
+          format: int64
+          nullable: true
+        building_name:
+          type: string
+          nullable: true
+    TrashListResponse:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/TrashItem'}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        size: {type: integer, minimum: 1, maximum: 100}
+    TrashRestoreResponse:
+      type: object
+      required: [type, id, restored]
+      properties:
+        type: {$ref: '#/components/schemas/TrashType'}
+        id: {type: integer, format: int64}
+        restored: {type: boolean}
+        warnings:
+          type: array
+          description: Предупреждения (например, восстановление в деактивированное здание — TRASH-2).
+          items: {type: string}
