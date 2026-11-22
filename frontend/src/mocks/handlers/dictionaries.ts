@@ -1,29 +1,31 @@
 /**
  * MSW: справочники и настройки, доступные авторизованным/публично.
  *
- * Аддитивные расширения контракта §3.13 (Б7): без них USER не может заполнить
- * форму заявки, а публичные экраны — показать названия и цвета статусов.
- *   - `GET /api/problem-types`   — виды проблем для форм и фильтров (USER/ADMIN);
- *   - `GET /api/equipment-types` — типы оборудования для формы (USER/ADMIN);
- *   - `GET /api/public/settings` — название приложения, календарь и статусы (аноним).
+ * Контракт Б7:
+ *   - `GET /api/problem-types`   — активные виды проблем (USER/ADMIN);
+ *     `include_inactive=true` учитывается только для ADMIN;
+ *   - `GET /api/equipment-types` — аналогично для типов оборудования;
+ *   - `GET /api/public/settings` — только `app_name` и статусы (PUB-1);
+ *     календарь, часовой пояс, срок и push наружу не отдаются.
  *
- * Возвращаются только активные значения: деактивированные справочники остаются
- * в старых записях (ТИКЕТ-2, EQ-2), но не предлагаются для новых.
+ * Деактивированные элементы остаются в старых записях (ТИКЕТ-2, EQ-2),
+ * но не предлагаются для новых.
  */
 import { http } from 'msw';
 import { guard } from '../auth';
-import { db } from '../db';
+import { db, type MockDictionaryItem } from '../db';
 import { API, json } from '../http';
 
-function activeProblemTypes() {
-  return db.problemTypes
-    .filter((item) => item.is_active)
-    .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+function parseIncludeInactive(request: Request): boolean {
+  return new URL(request.url).searchParams.get('include_inactive') === 'true';
 }
 
-function activeEquipmentTypes() {
-  return db.equipmentTypes
-    .filter((item) => item.is_active)
+function visibleDictionaries(
+  items: MockDictionaryItem[],
+  includeInactive: boolean,
+): MockDictionaryItem[] {
+  return items
+    .filter((item) => includeInactive || item.is_active)
     .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
 }
 
@@ -31,22 +33,22 @@ export const dictionaryHandlers = [
   http.get(`${API}/problem-types`, ({ request }) => {
     const auth = guard(request);
     if (!auth.ok) return auth.response;
-    return json(activeProblemTypes());
+    // `include_inactive` раскрывает историю только администратору.
+    const includeInactive = auth.user.role === 'ADMIN' && parseIncludeInactive(request);
+    return json(visibleDictionaries(db.problemTypes, includeInactive));
   }),
 
   http.get(`${API}/equipment-types`, ({ request }) => {
     const auth = guard(request);
     if (!auth.ok) return auth.response;
-    return json(activeEquipmentTypes());
+    const includeInactive = auth.user.role === 'ADMIN' && parseIncludeInactive(request);
+    return json(visibleDictionaries(db.equipmentTypes, includeInactive));
   }),
 
-  // Публичные настройки (без авторизации): только безопасные поля.
+  // Публичные настройки (без авторизации): только безопасное подмножество.
   http.get(`${API}/public/settings`, () =>
     json({
       app_name: db.settings.app_name,
-      deadline_days: db.settings.deadline_days,
-      workdays: db.settings.workdays,
-      timezone: db.settings.timezone,
       statuses: db.settings.statuses,
     }),
   ),

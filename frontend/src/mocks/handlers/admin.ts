@@ -382,7 +382,13 @@ export const adminHandlers = [
   http.get(`${API}/admin/problem-types`, ({ request }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
-    return json(sortedDictionaries('problem').map((item) => toDictionary(item, 'problem')));
+    // Контракт Б7: по умолчанию только активные; `include_inactive=true` — все.
+    const includeInactive = new URL(request.url).searchParams.get('include_inactive') === 'true';
+    return json(
+      sortedDictionaries('problem')
+        .filter((item) => includeInactive || item.is_active)
+        .map((item) => toDictionary(item, 'problem')),
+    );
   }),
 
   http.post(`${API}/admin/problem-types`, async ({ request }) => {
@@ -438,7 +444,12 @@ export const adminHandlers = [
   http.get(`${API}/admin/equipment-types`, ({ request }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
-    return json(sortedDictionaries('equipment').map((item) => toDictionary(item, 'equipment')));
+    const includeInactive = new URL(request.url).searchParams.get('include_inactive') === 'true';
+    return json(
+      sortedDictionaries('equipment')
+        .filter((item) => includeInactive || item.is_active)
+        .map((item) => toDictionary(item, 'equipment')),
+    );
   }),
 
   http.post(`${API}/admin/equipment-types`, async ({ request }) => {
@@ -523,17 +534,17 @@ export const adminHandlers = [
     const holiday = db.holidays.find((item) => item.id === pathId(params.id));
     if (!holiday) return notFound('Праздник не найден');
     const body = await readBody<{ date?: string; name?: string }>(request);
-    if (body.date !== undefined) {
-      const date = String(body.date).trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        return validation('Дата праздника в формате YYYY-MM-DD', { date: 'YYYY-MM-DD' });
-      }
-      // Дубликат даты ломает идемпотентность рабочих дней.
-      if (db.holidays.some((item) => item.id !== holiday.id && item.date === date)) {
-        return conflict('CONFLICT', 'Праздник на эту дату уже добавлен');
-      }
-      holiday.date = date;
+    // Контракт HolidayUpdateRequest: `date` обязательно.
+    const date = typeof body.date === 'string' ? body.date.trim() : '';
+    if (!date) return validation('Укажите дату праздника', { date: 'обязательное' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return validation('Дата праздника в формате YYYY-MM-DD', { date: 'YYYY-MM-DD' });
     }
+    // Дубликат даты ломает идемпотентность рабочих дней.
+    if (db.holidays.some((item) => item.id !== holiday.id && item.date === date)) {
+      return conflict('CONFLICT', 'Праздник на эту дату уже добавлен');
+    }
+    holiday.date = date;
     if (body.name !== undefined) {
       const name = String(body.name).trim();
       if (!name)

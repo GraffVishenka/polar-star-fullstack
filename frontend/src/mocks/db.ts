@@ -1325,7 +1325,10 @@ export function toTrashItem(item: MockTrashItem): TrashItem {
       title: `Заявка №${item.id}`,
       description: ticket ? `${ticket.applicant_name} · ${building?.name ?? '—'}` : null,
       deleted_at: item.deleted_at,
+      deleted_by_user_id: item.deleted_by_user_id,
       deleted_by_name: deletedBy?.full_name ?? '—',
+      building_id: building?.id ?? null,
+      building_name: building?.name ?? null,
       warnings: !ticket
         ? ['Заявка не найдена']
         : !building
@@ -1353,7 +1356,10 @@ export function toTrashItem(item: MockTrashItem): TrashItem {
       description:
         parentId === null ? 'Корневой раздел базы знаний' : `Раздел БЗ · «${parent?.title ?? '—'}»`,
       deleted_at: item.deleted_at,
+      deleted_by_user_id: item.deleted_by_user_id,
       deleted_by_name: deletedBy?.full_name ?? '—',
+      building_id: null,
+      building_name: null,
       warnings,
     };
   }
@@ -1386,7 +1392,10 @@ export function toTrashItem(item: MockTrashItem): TrashItem {
       ? `${equipment.registration_number} · ${warehouse?.name ?? '—'}, ${building?.name ?? '—'}`
       : null,
     deleted_at: item.deleted_at,
+    deleted_by_user_id: item.deleted_by_user_id,
     deleted_by_name: deletedBy?.full_name ?? '—',
+    building_id: building?.id ?? null,
+    building_name: building?.name ?? null,
     warnings,
   };
 }

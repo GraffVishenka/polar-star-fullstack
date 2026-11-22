@@ -62,7 +62,8 @@ const DICTIONARIES: Record<DictionaryKind, DictionaryConfig> = {
     singular: 'вид проблемы',
     addLabel: 'Добавить вид проблемы',
     queryKey: queryKeys.problemTypes,
-    list: fetchProblemTypes,
+    // Админ-панель показывает и деактивированные значения (контракт Б7).
+    list: () => fetchProblemTypes({ include_inactive: true }),
     create: createProblemType,
     update: updateProblemType,
   },
@@ -71,7 +72,7 @@ const DICTIONARIES: Record<DictionaryKind, DictionaryConfig> = {
     singular: 'тип оборудования',
     addLabel: 'Добавить тип оборудования',
     queryKey: queryKeys.equipmentTypes,
-    list: fetchEquipmentTypes,
+    list: () => fetchEquipmentTypes({ include_inactive: true }),
     create: createEquipmentType,
     update: updateEquipmentType,
   },

@@ -394,23 +394,35 @@ export interface EquipmentType {
   id: number;
   name: string;
   /**
-   * Аддитивно (Б7/Ф6): порядок в справочнике и признак активности.
-   * Деактивированный тип остаётся в старых записях оборудования.
+   * Порядок в справочнике (контракт Б7). Необязательное в TS, чтобы фикстуры
+   * форм и старые ответы без этих полей оставались совместимыми.
    */
   sort_order?: number;
+  /** Деактивированный тип остаётся в старых записях оборудования. */
   is_active?: boolean;
-  /** Сколько действующих записей ссылается на тип (показывает админка). */
+  /** Аддитивно (Ф6): сколько действующих записей ссылается на тип. */
   usage_count?: number;
 }
 
 export interface ProblemType {
   id: number;
   name: string;
-  /** Аддитивно (Б7/Ф6): порядок в справочнике и признак активности. */
+  /** Порядок в справочнике (контракт Б7). */
   sort_order?: number;
+  /** Деактивированный вид остаётся в старых заявках. */
   is_active?: boolean;
-  /** Сколько действующих заявок ссылается на вид проблемы. */
+  /** Аддитивно (Ф6): сколько действующих заявок ссылается на вид проблемы. */
   usage_count?: number;
+}
+
+/**
+ * Публичный элемент справочника (`GET /api/public/problem-types`, Б7):
+ * только активные значения для формы анонимной заявки, без `is_active`.
+ */
+export interface PublicProblemType {
+  id: number;
+  name: string;
+  sort_order: number;
 }
 
 export interface Equipment {
@@ -503,8 +515,26 @@ export interface TicketStatusSetting {
 
 export interface Holiday {
   id: number;
+  /** DATE `YYYY-MM-DD` в `timezone` приложения (CAL-1). */
   date: string;
-  name: string;
+  created_at?: string;
+  /**
+   * Аддитивное расширение UI: подпись праздника. Контракт `Holiday` отдаёт
+   * только `date`, поэтому поле необязательное и не должно ломать экран.
+   */
+  name?: string;
+}
+
+export interface HolidayCreateRequest {
+  date: string;
+  /** Аддитивно: подпись; сервер может игнорировать. */
+  name?: string;
+}
+
+export interface HolidayUpdateRequest {
+  date: string;
+  /** Аддитивно: подпись; сервер может игнорировать. */
+  name?: string;
 }
 
 export interface AppSettings {
@@ -533,15 +563,12 @@ export interface AppSettingsUpdateRequest {
 }
 
 /**
- * Публичные настройки (`GET /api/public/settings`) — аддитивное расширение
- * контракта из Б7: анонимной форме заявки и публичным экранам нужны название
- * приложения и подписи/цвета статусов. Без паролей, праздников и push-флагов.
+ * Публичные настройки (`GET /api/public/settings`, Б7): только имя приложения
+ * и названия/цвета четырёх статусов. Календарь, пояс, срок и push наружу
+ * не отдаются (PUB-1).
  */
 export interface PublicSettings {
   app_name: string;
-  deadline_days: number;
-  workdays: Weekday[];
-  timezone: string;
   statuses: TicketStatusSetting[];
 }
 
@@ -616,6 +643,25 @@ export interface StatsResponse {
   overdue_count: number;
   by_problem_type: ProblemTypeStat[];
   by_month: MonthStat[];
+  /**
+   * Аддитивное расширение (STATS-1, согласовано с lead/be): сводная статистика
+   * `/api/admin/stats` без `user_id` отдаёт метрики по сотрудникам, чтобы
+   * страница `/admin/stats` не делала N запросов. Для личной статистики и
+   * запроса с `user_id` поле отсутствует.
+   */
+  employees?: EmployeeStats[];
+}
+
+/** Метрики одного сотрудника в сводной статистике (`employees[]`). */
+export interface EmployeeStats {
+  user_id: number;
+  user_name: string;
+  total_done: number;
+  done_in_period: number;
+  avg_resolution_hours: number | null;
+  median_resolution_hours: number | null;
+  on_time_percent: number | null;
+  overdue_count: number;
 }
 
 export interface StatsParams {
@@ -636,9 +682,15 @@ export interface TrashItem {
   id: number;
   type: TrashType;
   title: string;
+  /** Аддитивно: пояснение для списка (контракт отдаёт только `title`). */
   description: string | null;
   deleted_at: string;
-  deleted_by_name: string;
+  /** Кто удалил (TRASH-1): id и ФИО, `null` для системных записей. */
+  deleted_by_user_id: number | null;
+  deleted_by_name: string | null;
+  /** Здание элемента — для фильтра/подписи (TRASH-1, контракт `TrashItem`). */
+  building_id: number | null;
+  building_name: string | null;
   /** Предупреждения восстановления (TRASH-2): неактивное здание, конфликт номера. */
   warnings: string[];
 }

@@ -9,6 +9,8 @@ import type {
   AppSettings,
   AppSettingsUpdateRequest,
   EquipmentType,
+  HolidayCreateRequest,
+  HolidayUpdateRequest,
   Page,
   ProblemType,
   PushPublicKeyResponse,
@@ -63,8 +65,11 @@ export interface DictionaryItemPayload {
   is_active?: boolean;
 }
 
-export function fetchProblemTypes(): Promise<ProblemType[]> {
-  return apiRequest<ProblemType[]>('/admin/problem-types');
+export function fetchProblemTypes(
+  params: { include_inactive?: boolean } = {},
+): Promise<ProblemType[]> {
+  // Контракт Б7: по умолчанию только активные; админ-панель просит все.
+  return apiRequest<ProblemType[]>('/admin/problem-types', { query: params });
 }
 
 export function createProblemType(
@@ -81,8 +86,10 @@ export function deleteProblemType(id: number): Promise<void> {
   return apiRequest<void>(`/admin/problem-types/${id}`, { method: 'DELETE' });
 }
 
-export function fetchEquipmentTypes(): Promise<EquipmentType[]> {
-  return apiRequest<EquipmentType[]>('/admin/equipment-types');
+export function fetchEquipmentTypes(
+  params: { include_inactive?: boolean } = {},
+): Promise<EquipmentType[]> {
+  return apiRequest<EquipmentType[]>('/admin/equipment-types', { query: params });
 }
 
 export function createEquipmentType(
@@ -108,17 +115,16 @@ export function fetchHolidays(): Promise<AppSettings['holidays']> {
   return apiRequest<AppSettings['holidays']>('/admin/holidays');
 }
 
-export function createHoliday(body: {
-  date: string;
-  name: string;
-}): Promise<AppSettings['holidays'][number]> {
+export function createHoliday(
+  body: HolidayCreateRequest,
+): Promise<AppSettings['holidays'][number]> {
   return apiRequest<AppSettings['holidays'][number]>('/admin/holidays', { method: 'POST', body });
 }
 
-/** CAL-1: правка даты/названия праздника (дата проверяется на сервере). */
+/** CAL-1: перенос даты праздника (уникальность даты проверяет сервер, 409). */
 export function updateHoliday(
   id: number,
-  body: { date?: string; name?: string },
+  body: HolidayUpdateRequest,
 ): Promise<AppSettings['holidays'][number]> {
   return apiRequest<AppSettings['holidays'][number]>(`/admin/holidays/${id}`, {
     method: 'PATCH',

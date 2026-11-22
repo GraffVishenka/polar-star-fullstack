@@ -374,7 +374,17 @@ function HolidaysSection() {
                 </Typography.Text>
               ),
             },
-            { title: 'Название', dataIndex: 'name', key: 'name' },
+            {
+              title: 'Название',
+              dataIndex: 'name',
+              key: 'name',
+              // Контракт отдаёт только дату; подпись — аддитивное поле.
+              render: (value: string | undefined) => (
+                <Typography.Text type={value ? undefined : 'secondary'}>
+                  {value ?? 'Праздник'}
+                </Typography.Text>
+              ),
+            },
             {
               title: '',
               key: 'actions',
@@ -385,7 +395,7 @@ function HolidaysSection() {
                     size="small"
                     type="text"
                     icon={<EditOutlined />}
-                    aria-label={`Изменить праздник ${holiday.name}`}
+                    aria-label={`Изменить праздник ${holiday.name ?? holiday.date}`}
                     data-testid={`holiday-edit-${holiday.id}`}
                     onClick={() => setEditTarget(holiday)}
                   />
@@ -394,7 +404,7 @@ function HolidaysSection() {
                     danger
                     type="text"
                     icon={<DeleteOutlined />}
-                    aria-label={`Удалить праздник ${holiday.name}`}
+                    aria-label={`Удалить праздник ${holiday.name ?? holiday.date}`}
                     data-testid={`holiday-delete-${holiday.id}`}
                     onClick={() => setDeleteTarget(holiday)}
                   />
@@ -409,7 +419,7 @@ function HolidaysSection() {
           title="Удалить праздник?"
           description={
             deleteTarget
-              ? `«${deleteTarget.name}» (${dayjs(deleteTarget.date).format('DD.MM.YYYY')}) снова станет рабочим днём.`
+              ? `«${deleteTarget.name ?? 'Праздник'}» (${dayjs(deleteTarget.date).format('DD.MM.YYYY')}) снова станет рабочим днём.`
               : undefined
           }
           okText="Удалить"
