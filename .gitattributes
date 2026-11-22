@@ -1,0 +1,23 @@
+# Единые переводы строк: исходники — LF, Windows-скрипты — CRLF.
+* text=auto eol=lf
+*.go text eol=lf
+*.sql text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.docx binary
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.mp4 binary
+*.zip binary
