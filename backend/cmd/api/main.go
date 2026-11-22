@@ -303,14 +303,9 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		IdleTimeout: 120 * time.Second,
 	}
 
-	// Воркеры-заглушки для ещё не реализованных блоков (корзина — Б10);
-	// outbox и напоминания Б8 запускаются отдельным worker'ом ниже.
+	// Фоновые процессы (Б3, Б8, Б10) останавливаются вместе с контекстом.
 	workerCtx, stopWorkers := context.WithCancel(ctx)
-	workers := startWorkers(workerCtx, logger)
-	defer func() {
-		stopWorkers()
-		workers.Wait()
-	}()
+	defer stopWorkers()
 
 	// Б3: раз в час удаляются файлы без привязки (linked_at IS NULL) старше
 	// 24 часов; ошибки очистки только логируются и не влияют на API.
