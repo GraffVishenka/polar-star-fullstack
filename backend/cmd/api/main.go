@@ -33,6 +33,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/settings"
 	"github.com/graffvishenka/polar-star-service/backend/internal/stats"
 	"github.com/graffvishenka/polar-star-service/backend/internal/tickets"
+	"github.com/graffvishenka/polar-star-service/backend/internal/trash"
 	"github.com/graffvishenka/polar-star-service/backend/internal/users"
 )
 
@@ -235,6 +236,12 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 			Clock:   clock,
 		}, logger)
 
+	// Б10: корзина и восстановление. Физическое удаление файлов идёт через
+	// files.Storage (интерфейс FileRemover), БД — через собственный репозиторий.
+	trashRepository := trash.NewMySQLRepository(pool)
+	trashService := trash.NewService(trashRepository, filesStore, clock, logger)
+	trashHandler := trash.NewHandler(trashService, logger)
+
 	httpServer := httpserver.New(httpserver.Deps{
 		Config:               cfg,
 		Logger:               logger,
@@ -257,6 +264,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		PushHandler:          notificationsHandler,
 		StatsHandler:         statsHandler,
 		DocumentsHandler:     documentsHandler,
+		TrashHandler:         trashHandler,
 	})
 
 	server := &http.Server{
@@ -279,6 +287,10 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	// Б3: раз в час удаляются файлы без привязки (linked_at IS NULL) старше
 	// 24 часов; ошибки очистки только логируются и не влияют на API.
 	go files.NewCleaner(filesRepo, filesStore, logger, clock, files.CleanerOptions{}).Run(workerCtx)
+
+	// Б10: ежедневная автоочистка корзины (TRASH-4) в 03:00 по часовому поясу
+	// приложения: удалённое более 90 дней назад исчезает безвозвратно.
+	go trash.NewCleaner(trashService, logger, clock, calendar.Location()).Run(workerCtx)
 
 	// Б8: каждые 30 секунд отправляется outbox и проверяется время ежедневных
 	// напоминаний; повторный запуск за день не дублирует доставку (NOTIF-7).
