@@ -599,6 +599,41 @@ func TestChangePasswordClearsGateAndRevokesOtherSessions(t *testing.T) {
 	}
 }
 
+// AUTH-6: блокировка действует со следующего запроса — requireAuth перечитывает
+// is_active из БД, старый access-токен сразу перестаёт работать.
+func TestBlockedUserLosesAccessImmediately(t *testing.T) {
+	user := activeUser(11, "eve", auth.RoleUser)
+	env := newTestEnv(t, user)
+	token := env.token(t, user)
+
+	if rec := doRequest(env.handler, http.MethodGet, "/api/auth/me", token, nil); rec.Code != http.StatusOK {
+		t.Fatalf("me до блокировки = %d, want 200", rec.Code)
+	}
+
+	env.repo.users["eve"].IsActive = false
+
+	rec := doRequest(env.handler, http.MethodGet, "/api/auth/me", token, nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("me после блокировки = %d, want 401", rec.Code)
+	}
+	if body := decodeError(t, rec); body["code"] != "UNAUTHORIZED" {
+		t.Fatalf("code = %v", body["code"])
+	}
+}
+
+// AUTH-4: USER не имеет доступа к админскому списку пользователей (403).
+func TestUserForbiddenOnAdminUsers(t *testing.T) {
+	user := activeUser(12, "frank", auth.RoleUser)
+	env := newTestEnv(t, user)
+	rec := doRequest(env.handler, http.MethodGet, "/api/admin/users", env.token(t, user), nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("USER GET /api/admin/users = %d, want 403", rec.Code)
+	}
+	if body := decodeError(t, rec); body["code"] != "FORBIDDEN" {
+		t.Fatalf("code = %v", body["code"])
+	}
+}
+
 // NFR-2: CORS подтверждает только разрешённый origin.
 func TestCORS(t *testing.T) {
 	env := newTestEnv(t)
