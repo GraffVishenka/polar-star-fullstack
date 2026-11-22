@@ -134,11 +134,16 @@ export function EquipmentPage() {
   const handleBulkCompleted = useCallback(
     (result: EquipmentBulkMoveResponse) => {
       invalidate();
-      setSelectedIds([]);
       message.success(`Перемещено единиц: ${result.moved_count} → «${result.to_warehouse_name}»`);
     },
     [invalidate, message],
   );
+
+  // Выбор сбрасываем при закрытии диалога: на шаге «итог» счётчик ещё нужен.
+  const closeBulkDialog = useCallback(() => {
+    setBulkOpen(false);
+    setSelectedIds([]);
+  }, []);
 
   const handleSaved = useCallback(
     (saved: Equipment) => {
@@ -312,7 +317,7 @@ export function EquipmentPage() {
         buildings={buildings}
         warehouses={warehouses}
         isAdmin={isAdmin}
-        onClose={() => setBulkOpen(false)}
+        onClose={closeBulkDialog}
         onCompleted={handleBulkCompleted}
       />
 

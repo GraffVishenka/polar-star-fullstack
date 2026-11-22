@@ -40,7 +40,6 @@ export function EquipmentTable({
       title: 'Наименование',
       dataIndex: 'name',
       key: 'name',
-      sorter: false,
       render: (_value, record) => (
         <Flex vertical gap={2}>
           <Typography.Text strong>{record.name}</Typography.Text>

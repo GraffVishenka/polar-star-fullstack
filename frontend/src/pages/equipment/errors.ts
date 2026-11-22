@@ -32,6 +32,10 @@ export function describeEquipmentError(cause: unknown, context: EquipmentErrorCo
         : 'Запись не найдена: возможно, её уже удалили. Обновите список';
     case 'BUILDING_IN_USE':
       return 'Здание используется: деактивируйте его вместо удаления';
+    case 'VALIDATION_ERROR':
+      return context === 'bulk'
+        ? 'Проверьте набор единиц: за операцию можно переместить от 1 до 200 единиц (EQ-4)'
+        : 'Проверьте заполнение полей';
     default:
       return cause.userMessage;
   }

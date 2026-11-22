@@ -137,4 +137,36 @@ describe('EquipmentPage: массовое перемещение', () => {
     expect(document.querySelector('tr[data-row-key="1"]')).toHaveTextContent('Склад ИТ');
     expect(screen.getByTestId('selection-bar')).toBeInTheDocument();
   });
+
+  it('422 (некорректный набор единиц) объясняется без потери выбора', async () => {
+    server.use(
+      http.post(`${API}/equipment/bulk-move`, () =>
+        HttpResponse.json(
+          {
+            code: 'VALIDATION_ERROR',
+            message: 'Выберите от 1 до 200 единиц оборудования',
+            details: { count: 0 },
+            request_id: 'mock-test',
+          },
+          { status: 422 },
+        ),
+      ),
+    );
+
+    renderPage();
+    expect(await screen.findByText('Ноутбук Dell Latitude')).toBeInTheDocument();
+
+    await userEvent.click(rowCheckbox(1));
+    await userEvent.click(await screen.findByTestId('bulk-move-open'));
+
+    const dialog = screen.getByTestId('bulk-dialog');
+    const comboboxes = within(dialog).getAllByRole('combobox');
+    await chooseOption(comboboxes[0]!, 'Центральный офис');
+    await chooseOption(comboboxes[1]!, 'Кабинет 101');
+    await userEvent.click(screen.getByTestId('bulk-next'));
+    await userEvent.click(await screen.findByTestId('bulk-confirm'));
+
+    expect(await screen.findByTestId('bulk-error')).toHaveTextContent('от 1 до 200 единиц');
+    expect(screen.getByTestId('selection-bar')).toBeInTheDocument();
+  });
 });

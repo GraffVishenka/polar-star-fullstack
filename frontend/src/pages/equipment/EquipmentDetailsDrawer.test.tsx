@@ -122,6 +122,17 @@ describe('EquipmentDetailsDrawer: карточка и журнал', () => {
     expect(journal).toHaveTextContent('Перенос на ремонт');
   });
 
+  it('в журнале помечает неактивное здание бейджем «Неактивно» (EQ-1)', async () => {
+    renderPage();
+    await openDrawer(9);
+
+    expect(screen.getByTestId('equipment-location')).toHaveTextContent('Старый корпус');
+    const journal = await screen.findByTestId('movement-list');
+    const entry = within(journal).getByTestId('movement-item-3');
+    expect(entry).toHaveTextContent('Выведен из эксплуатации, перенесён в архив');
+    expect(within(entry).getByTestId('inactive-badge')).toBeInTheDocument();
+  });
+
   it('409 SAME_WAREHOUSE показывается в диалоге и не меняет локацию', async () => {
     renderPage();
     await openDrawer(1);
