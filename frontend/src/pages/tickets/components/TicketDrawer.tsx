@@ -117,13 +117,18 @@ export function TicketDrawer({ ticketId, open, onClose }: TicketDrawerProps) {
 
   const update = useUpdateTicket();
   const remove = useDeleteTicket();
+  const resetUpdate = update.reset;
+  const resetRemove = remove.reset;
 
-  // Сбрасываем локальное состояние при переходе к другой заявке.
+  // Сбрасываем локальное состояние при переходе к другой заявке
+  // (в т.ч. прошлые тосты/статусы мутаций, например executor_reset).
   useEffect(() => {
     setEditing(false);
     setPendingBuildingId(null);
     setConfirmDelete(false);
-  }, [ticketId]);
+    resetUpdate();
+    resetRemove();
+  }, [ticketId, resetUpdate, resetRemove]);
 
   useEffect(() => {
     if (!editing || !ticket) return;
