@@ -5,12 +5,13 @@
  * переключатель зданий (только на дашборде `/b/:id`) и вход для сотрудников.
  * Футер нейтральный: не раскрывает внутренние сущности (NFR-2).
  */
-import { useCallback, useMemo } from 'react';
+import { Suspense, useCallback, useMemo } from 'react';
 import { BankOutlined, LoginOutlined, ReadOutlined } from '@ant-design/icons';
 import { Button, Flex, Layout, Menu, Space, Typography } from 'antd';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { APP_DESCRIPTION } from '@/app/config';
 import { useAuth } from '@/auth/AuthContext';
+import { FullPageLoader } from '@/components/FullPageLoader';
 import { BuildingSelect } from '@/components/BuildingSelect';
 import { useAnonBuilding } from '@/hooks/useAnonBuilding';
 import { usePublicSettings } from '@/hooks/usePublicSettings';
@@ -100,7 +101,9 @@ export function PublicLayout() {
 
       <Content className="public-content">
         <div className="public-content__inner">
-          <Outlet />
+          <Suspense fallback={<FullPageLoader text="Загружаем раздел…" />}>
+            <Outlet />
+          </Suspense>
         </div>
       </Content>
 

@@ -5,7 +5,7 @@
  * меню профиля и выход. Отдельный баннер для AUTH-9: у USER не назначено здание,
  * заявки недоступны (сервер вернёт 409 BUILDING_NOT_ASSIGNED).
  */
-import { useCallback, useState } from 'react';
+import { Suspense, useCallback, useState } from 'react';
 import {
   BankOutlined,
   BarChartOutlined,
@@ -20,6 +20,7 @@ import { Alert, Avatar, Button, Dropdown, Flex, Layout, Menu, Space, Typography 
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { APP_NAME } from '@/app/config';
 import { useAuth } from '@/auth/AuthContext';
+import { FullPageLoader } from '@/components/FullPageLoader';
 import { BuildingBadge } from '@/components/BuildingBadge';
 import { PushHeaderToggle } from '@/push/PushHeaderToggle';
 import { PushProvider } from '@/push/PushProvider';
@@ -145,7 +146,9 @@ export function AppLayout() {
 
         <Content className="app-content">
           <div className="app-content__inner">
-            <Outlet />
+            <Suspense fallback={<FullPageLoader text="Загружаем раздел…" />}>
+              <Outlet />
+            </Suspense>
           </div>
         </Content>
 

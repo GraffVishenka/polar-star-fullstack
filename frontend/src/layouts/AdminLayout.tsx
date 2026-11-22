@@ -4,6 +4,7 @@
  * Боковое меню на десктопе, сворачивается до иконок на планшете; на телефоне
  * разделы доступны через тот же вертикальный список в свёрнутом Sider.
  */
+import { Suspense } from 'react';
 import {
   AppstoreOutlined,
   DatabaseOutlined,
@@ -17,6 +18,7 @@ import {
 import { Button, Flex, Layout, Menu, Typography } from 'antd';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
+import { FullPageLoader } from '@/components/FullPageLoader';
 
 const { Sider, Content } = Layout;
 
@@ -92,7 +94,9 @@ export function AdminLayout() {
       </Sider>
       <Content className="admin-content">
         <div className="admin-content__inner">
-          <Outlet />
+          <Suspense fallback={<FullPageLoader text="Загружаем раздел…" />}>
+            <Outlet />
+          </Suspense>
         </div>
       </Content>
     </Layout>
