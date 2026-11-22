@@ -11,13 +11,13 @@
 | Б3 Файлы и медиа | `feat/back-b3-files` | готово | `00e96ed` |
 | Б4 Здания, склады, оборудование | `feat/back-b4-equipment` | готово | `3a2fd49` |
 | Б5 Заявки и публичные дашборды | `feat/back-b5-tickets` | готово | `1120fec` |
-| Б6 База знаний | `feat/back-b6-kb` | в работе | — |
-| Б7 Настройки, справочники, время | `feat/back-b7-settings` | в работе | — |
-| Б8 Push-уведомления | `feat/back-b8-push` | в работе | — |
-| Б9 Статистика | — | ожидает | — |
-| Б10 Корзина | — | ожидает | — |
-| Б11 Документы Word/Excel | — | ожидает | — |
-| Б12 Массовые перемещения | — | ожидает | — |
+| Б6 База знаний | `feat/back-b6-kb` | готово | `ec77428` |
+| Б7 Настройки, справочники, время | `feat/back-b7-settings` | готово | `4b8d76d` |
+| Б8 Push-уведомления | `feat/back-b8-push` | готово | `1425665` |
+| Б9 Статистика | `feat/back-b9-stats` | готово | `b89c3be` |
+| Б10 Корзина | `feat/back-b10-trash` | в работе | — |
+| Б11 Документы Word/Excel | `feat/back-b11-documents` | в работе | — |
+| Б12 Массовые перемещения | `feat/back-b12-bulk-move` | в работе | — |
 | Б13 Интеграция и HANDOVER | — | ожидает | — |
 
 ## Frontend (React + TS)
@@ -29,25 +29,28 @@
 | Ф3 База знаний | `feat/front-f3-kb` | готово | `c4db09f` |
 | Ф4 Оборудование | `feat/front-f4-equipment` | готово | `66d159f` |
 | Ф5 Публичный периметр | `feat/front-f5-public` | готово | `771bd3a` |
-| Ф6 Админ: пользователи, справочники, настройки | `feat/front-f6-admin-core` | в работе | — |
+| Ф6 Админ: пользователи, справочники, настройки | `feat/front-f6-admin-core` | готово | `2a9777c` |
 | Ф7 Админ: здания, модерация БЗ, корзина | `feat/front-f7-admin-infra` | готово | `e3c8349` |
-| Ф8 Документы и печать | `feat/front-f8-documents` | в работе | — |
-| Ф9 Push-уведомления | `feat/front-f9-push` | в работе | — |
-| Ф10 Статистика и профиль | — | ожидает | — |
-| Ф11 Интеграция, E2E | — | ожидает | — |
+| Ф8 Документы и печать | `feat/front-f8-documents` | готово | `3a921e4` |
+| Ф9 Push-уведомления | `feat/front-f9-push` | готово | `1425665` |
+| Ф10 Статистика и профиль | `feat/front-f10-stats` | готово | `1425665` |
+| Ф11 Интеграция, E2E | `feat/front-f11-e2e` | в работе | — |
 
 ## Инфраструктура
 
-- CI GitHub Actions: backend (MySQL 8.4, миграции, тесты) + frontend (typecheck, lint, tests, build) — зелёный на `main`.
+- CI GitHub Actions: backend (MySQL 8.4, миграции, тесты) + frontend (typecheck, lint, tests, build).
 - `scripts/dev-env.ps1`, `scripts/go-test-wasm.ps1` — локальная проверка в ограниченной Windows-среде.
 - `docs/ENVIRONMENT.md` — что можно и нельзя проверить локально.
+- CI аннотирует упавшие Go-тесты (`scripts/ci_test_report.py`), т.к. логи без токена недоступны.
 
-## Известные пробелы, закрываемые по ходу
+## Известные решения и пробелы
 
-| Пробел | Решение |
+| Вопрос | Решение |
 |---|---|
-| Анонимная загрузка вложений | `POST /api/public/files?token=` + alias `/api/public/tickets/{token}/files` (Б3/Б5) |
-| Публичная медиа БЗ | `GET /api/public/files/{id}` без токена для `scope=kb` (Б6) |
-| `GET /api/problem-types` для USER | read-only справочники (Б7) |
-| `executor_id=none` | поддержан в Б5 |
-| Formatting KB из Ф3 | исправлено в main |
+| Анонимная загрузка вложений | `POST /api/public/files?token=` + alias `/api/public/tickets/{token}/files` |
+| Публичная медиа БЗ | `GET /api/public/files/{id}` без токена для `scope=kb` с проверкой публичности статьи |
+| `GET /api/problem-types`, `/equipment-types`, `/public/problem-types`, `/public/settings` | добавлены Б7 |
+| `executor_id=none` | поддержан Б5 |
+| Дедлайн: примеры CAL-6 | нормативно CAL-4 (пятница+2 Пн–Сб → понедельник) |
+| Тесты KB на MySQL | ожидания исправлены lead по факту семантики (append в корень, видимость childA) |
+| Formatting KB/Ф6 | исправлено в main |
