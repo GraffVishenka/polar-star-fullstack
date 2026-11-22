@@ -1,9 +1,8 @@
 /**
  * Маршруты авторизованных сотрудников (AppLayout) и админ-панели.
  *
- * Регистрация по доменам: сейчас заглушки ведут на `PlaceholderPage`, чтобы
- * владельцы разделов (fe-2, fe-3) заменили только свою строку маршрута и не
- * конфликтовали с общими файлами.
+ * Каждый домен регистрирует свой маршрут отдельной строкой; общие layout'ы и
+ * guards живут в `src/app` и не переписываются владельцами доменов.
  */
 import type { RouteObject } from 'react-router-dom';
 import { Navigate } from 'react-router-dom';
@@ -19,7 +18,6 @@ import { SettingsPage } from '@/pages/admin/settings/SettingsPage';
 import { UsersPage } from '@/pages/admin/users/UsersPage';
 import { EquipmentPage } from '@/pages/equipment/EquipmentPage';
 import { KbPage } from '@/pages/kb/KbPage';
-import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
 import { ProfilePage } from '@/pages/profile/ProfilePage';
 import { TicketsPage } from '@/pages/tickets/TicketsPage';
 import { StatsPage } from '@/pages/stats/StatsPage';
