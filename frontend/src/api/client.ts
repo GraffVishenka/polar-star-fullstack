@@ -233,21 +233,42 @@ async function toApiError(response: Response): Promise<ApiError> {
 // Транспорт
 // ---------------------------------------------------------------------------
 
-function composeSignal(signal?: AbortSignal, timeoutMs?: number): AbortSignal | undefined {
-  if (!timeoutMs && !signal) return undefined;
-  const controller = new AbortController();
-  const abort = (reason: unknown) => {
-    if (!controller.signal.aborted) controller.abort(reason);
-  };
-  if (signal) {
-    if (signal.aborted) abort(signal.reason);
-    else signal.addEventListener('abort', () => abort(signal.reason), { once: true });
-  }
-  if (timeoutMs) {
-    const timer = setTimeout(() => abort(new Error('timeout')), timeoutMs);
-    controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
-  }
-  return controller.signal;
+/** Отмена fetch по таймауту/сигналу — отдельный код TIMEOUT, а не NETWORK_ERROR. */
+function isAbortError(cause: unknown): boolean {
+  if (cause instanceof DOMException) return cause.name === 'AbortError';
+  return (
+    typeof cause === 'object' &&
+    cause !== null &&
+    (cause as { name?: string }).name === 'AbortError'
+  );
+}
+
+/**
+ * Таймаут запроса без AbortSignal.
+ *
+ * Не передаём свой `AbortSignal` в `fetch`: в jsdom глобальный `AbortController`
+ * из другой реализации, чем у Node-fetch (undici), и запрос падает с
+ * «Expected signal to be an instance of AbortSignal». Гонка промисов даёт тот же
+ * пользовательский эффект; для GET-ов «повисший» запрос безвреден.
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs?: number): Promise<T> {
+  if (!timeoutMs) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new DOMException('Таймаут запроса', 'AbortError')),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function performFetch(
@@ -262,18 +283,21 @@ async function performFetch(
   }
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  return fetch(url, {
-    method: options.method ?? 'GET',
-    headers,
-    body:
-      options.body === undefined
-        ? undefined
-        : isFormData
-          ? (options.body as FormData)
-          : JSON.stringify(options.body),
-    credentials: 'same-origin',
-    signal: composeSignal(options.signal, options.timeoutMs),
-  });
+  return withTimeout(
+    fetch(url, {
+      method: options.method ?? 'GET',
+      headers,
+      body:
+        options.body === undefined
+          ? undefined
+          : isFormData
+            ? (options.body as FormData)
+            : JSON.stringify(options.body),
+      credentials: 'same-origin',
+      signal: options.signal,
+    }),
+    options.timeoutMs,
+  );
 }
 
 /** Запрос с авторизацией, single-flight refresh и одним повтором при 401. */
@@ -288,9 +312,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   try {
     response = await performFetch(url, options, options.skipAuth ? null : getAccessToken());
   } catch (cause) {
-    const isAbort = cause instanceof DOMException && cause.name === 'AbortError';
     throw new ApiError({
-      code: isAbort ? 'TIMEOUT' : 'NETWORK_ERROR',
+      code: isAbortError(cause) ? 'TIMEOUT' : 'NETWORK_ERROR',
       status: 0,
       isNetworkError: true,
       cause,
@@ -306,7 +329,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     try {
       response = await performFetch(url, options, token);
     } catch (cause) {
-      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, isNetworkError: true, cause });
+      throw new ApiError({
+        code: isAbortError(cause) ? 'TIMEOUT' : 'NETWORK_ERROR',
+        status: 0,
+        isNetworkError: true,
+        cause,
+      });
     }
     if (response.status === 401) {
       authLostListeners.forEach((listener) => listener());
@@ -354,7 +382,12 @@ export async function apiDownload(
   try {
     response = await performFetch(url, options, options.skipAuth ? null : getAccessToken());
   } catch (cause) {
-    throw new ApiError({ code: 'NETWORK_ERROR', status: 0, isNetworkError: true, cause });
+    throw new ApiError({
+      code: isAbortError(cause) ? 'TIMEOUT' : 'NETWORK_ERROR',
+      status: 0,
+      isNetworkError: true,
+      cause,
+    });
   }
 
   if (response.status === 401 && canRefresh) {
