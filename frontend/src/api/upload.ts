@@ -3,10 +3,25 @@
  *
  * Прогресс отдачи тела доступен только в XHR, поэтому здесь XHR, а не fetch.
  * Авторизация — тот же Bearer из памяти + single-flight refresh при 401.
+ *
+ * `uploadFileToEndpoint` — общий транспорт: используется и защищённым
+ * `POST /api/files` (Б3), и публичной загрузкой вложения анонима
+ * (`uploadPublicationFile` в `api/public.ts`).
  */
-import { getAccessToken, refreshSession } from './client';
+import { buildUrl, getAccessToken, refreshSession } from './client';
 import { ApiError, messageForCode, notifyApiError, parseApiErrorPayload } from './errors';
 import type { FileMeta, FileScope, FileUploadResponse } from './types';
+
+/** Настройки транспорта: произвольный эндпоинт, поля формы, авторизация. */
+export interface EndpointUploadOptions {
+  /** Дополнительные поля multipart (например, `scope`). */
+  fields?: Record<string, string>;
+  /** Прогресс 0..100. */
+  onProgress?: (percent: number) => void;
+  signal?: AbortSignal;
+  /** `false` — публичный эндпоинт, без Bearer и refresh (вложения анонима). */
+  withAuth?: boolean;
+}
 
 export interface UploadFileOptions {
   /** `ticket` — вложения комментариев, `kb` — медиа статей (KB-5). */
@@ -14,15 +29,6 @@ export interface UploadFileOptions {
   /** Прогресс 0..100. */
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
-}
-
-function buildUploadUrl(): string {
-  const base = (import.meta.env.VITE_API_BASE_URL?.trim() || '/api').replace(/\/+$/, '');
-  const origin =
-    typeof globalThis.location !== 'undefined' && globalThis.location.origin
-      ? globalThis.location.origin
-      : 'http://localhost';
-  return new URL(`${base}/files`, origin).toString();
 }
 
 function parseJson(text: string): unknown {
@@ -47,14 +53,15 @@ function toUploadError(status: number, text: string): ApiError {
   });
 }
 
-function xhrUpload(
+function xhrUploadToUrl(
+  url: string,
   file: File,
-  options: UploadFileOptions,
+  options: EndpointUploadOptions,
   token: string | null,
 ): Promise<FileMeta> {
   return new Promise<FileMeta>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open('POST', buildUploadUrl());
+    request.open('POST', url);
     request.responseType = 'text';
     request.withCredentials = true;
     request.setRequestHeader('Accept', 'application/json');
@@ -102,23 +109,40 @@ function xhrUpload(
 
     const form = new FormData();
     form.append('file', file);
-    form.append('scope', options.scope);
+    Object.entries(options.fields ?? {}).forEach(([key, value]) => form.append(key, value));
     request.send(form);
   });
 }
 
-/** Загружает файл, при 401 делает refresh и повторяет попытку один раз. */
-export async function uploadFile(file: File, options: UploadFileOptions): Promise<FileMeta> {
+/**
+ * Загружает файл на произвольный multipart-эндпоинт.
+ * При 401 (если `withAuth`) делает refresh и повторяет попытку один раз.
+ */
+export async function uploadFileToEndpoint(
+  url: string,
+  file: File,
+  options: EndpointUploadOptions = {},
+): Promise<FileMeta> {
+  const withAuth = options.withAuth !== false;
   try {
-    return await xhrUpload(file, options, getAccessToken());
+    return await xhrUploadToUrl(url, file, options, withAuth ? getAccessToken() : null);
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
+    if (withAuth && error instanceof ApiError && error.status === 401) {
       const token = await refreshSession();
-      if (token) return xhrUpload(file, options, token);
+      if (token) return xhrUploadToUrl(url, file, options, token);
     }
     if (error instanceof ApiError) notifyApiError(error);
     throw error;
   }
+}
+
+/** Загружает файл в `POST /api/files` (USER/ADMIN, Б3). */
+export function uploadFile(file: File, options: UploadFileOptions): Promise<FileMeta> {
+  return uploadFileToEndpoint(buildUrl('/files'), file, {
+    fields: { scope: options.scope },
+    onProgress: options.onProgress,
+    signal: options.signal,
+  });
 }
 
 // --- Клиентская валидация (лимиты Б3: 10 МБ фото, 200 МБ видео) -----------
