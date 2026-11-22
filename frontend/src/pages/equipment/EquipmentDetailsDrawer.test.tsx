@@ -83,8 +83,8 @@ describe('EquipmentDetailsDrawer: карточка и журнал', () => {
     const location = screen.getByTestId('equipment-location');
     expect(location).toHaveTextContent('Центральный офис');
     expect(location).toHaveTextContent('Склад ИТ');
-    // EQ-8: ведомость помещения — заглушка до Ф8.
-    expect(screen.getByTestId('inventory-stub')).toBeDisabled();
+    // EQ-8: ведомость помещения выгружается из текущего склада единицы.
+    expect(within(location).getByTestId('export-button')).toBeEnabled();
 
     const journal = await screen.findByTestId('movement-list');
     expect(within(journal).getByTestId('movement-item-1')).toHaveTextContent('Кабинет 101');

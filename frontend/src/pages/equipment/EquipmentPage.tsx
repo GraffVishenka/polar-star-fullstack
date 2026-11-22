@@ -17,6 +17,7 @@ import { deleteEquipment } from '@/api/equipment';
 import type { Equipment, EquipmentBulkMoveResponse } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { InventoryExportButton } from '@/components/exports/InventoryExportButton';
 import { PageHeader } from '@/components/PageHeader';
 import { BulkMoveDialog } from './components/BulkMoveDialog';
 import { EquipmentDetailsDrawer } from './components/EquipmentDetailsDrawer';
@@ -79,6 +80,12 @@ export function EquipmentPage() {
 
   const currentBuilding = buildings.find((building) => building.id === state.buildingId);
   const currentWarehouse = warehouses.find((warehouse) => warehouse.id === state.warehouseId);
+  // Склад может быть выбран без здания в URL (ссылка `?warehouse=2`) — тогда здание
+  // берём из самого склада, чтобы контекст ведомости помещения был полным.
+  const warehouseBuilding = currentWarehouse
+    ? buildings.find((building) => building.id === currentWarehouse.building_id)
+    : undefined;
+  const toolbarBuilding = currentBuilding ?? warehouseBuilding;
 
   const applyPatch = useCallback(
     (patch: EquipmentSearchPatch) => {
@@ -237,6 +244,26 @@ export function EquipmentPage() {
               onReset={handleResetFilters}
               loading={buildingsQuery.isLoading || warehousesQuery.isLoading}
             />
+
+            {/* EQ-8: ведомость помещения — для выбранного склада (рядом с его таблицей). */}
+            <Flex
+              align="center"
+              justify="space-between"
+              gap={8}
+              wrap
+              data-testid="warehouse-toolbar"
+            >
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {currentWarehouse
+                  ? `Помещение: «${currentWarehouse.name}»${
+                      toolbarBuilding ? ` · ${toolbarBuilding.name}` : ''
+                    }`
+                  : 'Помещение не выбрано: выберите склад в дереве или фильтре, чтобы сформировать ведомость'}
+              </Typography.Text>
+              <span data-testid="inventory-export">
+                <InventoryExportButton warehouseId={state.warehouseId} size="small" />
+              </span>
+            </Flex>
 
             {selectedIds.length > 0 ? (
               <Flex align="center" justify="space-between" gap={8} wrap data-testid="selection-bar">
