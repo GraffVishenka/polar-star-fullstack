@@ -1,0 +1,485 @@
+/** MSW: админ-панель — пользователи, настройки, справочники, праздники, корзина (§3.2, §3.4, §3.10). */
+import { http } from 'msw';
+import type {
+  AdminUserCreateRequest,
+  AdminUserUpdateRequest,
+  AppSettingsUpdateRequest,
+} from '@/api/types';
+import { guard } from '../auth';
+import {
+  db,
+  computeStats,
+  findBuilding,
+  findUser,
+  nextId,
+  toAdminUser,
+  toTrashItem,
+  type MockUser,
+} from '../db';
+import {
+  API,
+  conflict,
+  created,
+  fail,
+  json,
+  noContent,
+  notFound,
+  paginate,
+  pathId,
+  readBody,
+  validation,
+} from '../http';
+
+const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+function isKnownTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('ru-RU', { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function activeAdmins(): MockUser[] {
+  return db.users.filter((user) => user.role === 'ADMIN' && user.is_active);
+}
+
+function validateUserBuilding(role: string, buildingId: number | null | undefined): string | null {
+  if (role !== 'USER') return null;
+  // AUTH-4: у USER здание обязательно.
+  if (buildingId === null || buildingId === undefined) {
+    return 'BUILDING_REQUIRED_FOR_USER';
+  }
+  const building = findBuilding(Number(buildingId));
+  if (!building) return 'BUILDING_REQUIRED_FOR_USER';
+  // AUTH-8: перевод в неактивное здание запрещён.
+  if (!building.is_active) return 'BUILDING_INACTIVE';
+  return null;
+}
+
+export const adminHandlers = [
+  // --- Пользователи -------------------------------------------------------
+  http.get(`${API}/admin/users`, ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const url = new URL(request.url);
+    const role = url.searchParams.get('role');
+    const buildingId = Number(url.searchParams.get('building_id'));
+    const isActive = url.searchParams.get('is_active');
+    const search = (url.searchParams.get('search') ?? '').toLowerCase();
+    const page = Number(url.searchParams.get('page') ?? '1') || 1;
+    const size = Number(url.searchParams.get('size') ?? '20') || 20;
+
+    const items = db.users
+      .filter((user) => (role ? user.role === role : true))
+      .filter((user) =>
+        Number.isSafeInteger(buildingId) && buildingId > 0 ? user.building_id === buildingId : true,
+      )
+      .filter((user) => (isActive === null ? true : String(user.is_active) === isActive))
+      .filter((user) =>
+        search
+          ? user.full_name.toLowerCase().includes(search) ||
+            user.login.toLowerCase().includes(search)
+          : true,
+      )
+      .map(toAdminUser);
+
+    return json(paginate(items, page, size));
+  }),
+
+  http.post(`${API}/admin/users`, async ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const body = await readBody<AdminUserCreateRequest>(request);
+
+    const login = typeof body.login === 'string' ? body.login.trim() : '';
+    const fullName = typeof body.full_name === 'string' ? body.full_name.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const role = body.role === 'ADMIN' ? 'ADMIN' : 'USER';
+    const buildingId =
+      body.building_id === undefined || body.building_id === null ? null : Number(body.building_id);
+
+    if (!login) return validation('Укажите логин');
+    if (db.users.some((user) => user.login.toLowerCase() === login.toLowerCase())) {
+      return conflict('CONFLICT', 'Логин уже используется');
+    }
+    if (!fullName) return validation('Укажите ФИО');
+    if (password.length < 8) return validation('Временный пароль — не короче 8 символов');
+
+    const buildingError = validateUserBuilding(role, buildingId);
+    if (buildingError === 'BUILDING_REQUIRED_FOR_USER') {
+      return fail(422, 'BUILDING_REQUIRED_FOR_USER', 'Для сотрудника обязательно выберите здание');
+    }
+    if (buildingError === 'BUILDING_INACTIVE') {
+      return fail(422, 'BUILDING_INACTIVE', 'Здание деактивировано');
+    }
+
+    const user: MockUser = {
+      id: nextId(db.users),
+      login,
+      password,
+      full_name: fullName,
+      role,
+      building_id: role === 'USER' ? buildingId : null,
+      is_active: true,
+      // AUTH-4: новый аккаунт создаётся с временным паролем.
+      must_change_password: true,
+      created_at: new Date().toISOString(),
+      last_login_at: null,
+    };
+    db.users.push(user);
+    return created(toAdminUser(user));
+  }),
+
+  http.patch(`${API}/admin/users/:id`, async ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const user = findUser(pathId(params.id) ?? 0);
+    if (!user) return notFound('Пользователь не найден');
+    if (user.id === auth.user.id) {
+      return conflict('CANNOT_MODIFY_SELF', 'Нельзя изменить собственную учётную запись');
+    }
+
+    const body = await readBody<AdminUserUpdateRequest>(request);
+    const nextRole = body.role ?? user.role;
+    const nextBuildingId =
+      body.building_id !== undefined
+        ? body.building_id === null
+          ? null
+          : Number(body.building_id)
+        : user.building_id;
+    const nextActive = body.is_active ?? user.is_active;
+
+    const losingAdmin = user.role === 'ADMIN' && (nextRole !== 'ADMIN' || nextActive === false);
+    if (losingAdmin && activeAdmins().length <= 1) {
+      return conflict('LAST_ADMIN', 'Нельзя понизить или заблокировать последнего администратора');
+    }
+
+    if (nextRole === 'USER') {
+      const buildingError = validateUserBuilding('USER', nextBuildingId);
+      if (buildingError === 'BUILDING_REQUIRED_FOR_USER') {
+        return fail(
+          422,
+          'BUILDING_REQUIRED_FOR_USER',
+          'Для сотрудника обязательно выберите здание',
+        );
+      }
+      if (buildingError === 'BUILDING_INACTIVE') {
+        return fail(422, 'BUILDING_INACTIVE', 'Здание деактивировано');
+      }
+    }
+
+    if (body.full_name !== undefined) {
+      const fullName = String(body.full_name).trim();
+      if (!fullName) return validation('ФИО не может быть пустым');
+      user.full_name = fullName;
+    }
+    if (body.role !== undefined) {
+      user.role = body.role;
+      // AUTH-8: USER→ADMIN очищает здание, ADMIN→USER требует здание.
+      user.building_id = body.role === 'ADMIN' ? null : nextBuildingId;
+    } else if (body.building_id !== undefined) {
+      user.building_id = nextBuildingId;
+    }
+    if (body.is_active !== undefined) user.is_active = Boolean(body.is_active);
+
+    return json(toAdminUser(user));
+  }),
+
+  http.post(`${API}/admin/users/:id/password`, async ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const user = findUser(pathId(params.id) ?? 0);
+    if (!user) return notFound('Пользователь не найден');
+
+    const body = await readBody<{ password?: string }>(request);
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (password.length < 8) return validation('Пароль — не короче 8 символов');
+
+    user.password = password;
+    user.must_change_password = true;
+    return noContent();
+  }),
+
+  // --- Настройки ----------------------------------------------------------
+  http.get(`${API}/admin/settings`, ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    return json({ ...db.settings, holidays: db.holidays });
+  }),
+
+  http.put(`${API}/admin/settings`, async ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const body = await readBody<AppSettingsUpdateRequest>(request);
+
+    if (body.deadline_days !== undefined) {
+      const days = Number(body.deadline_days);
+      if (!Number.isInteger(days) || days < 1 || days > 30) {
+        return validation('Срок дедлайна — от 1 до 30 рабочих дней', { deadline_days: '1–30' });
+      }
+      db.settings.deadline_days = days;
+    }
+    if (body.workdays !== undefined) {
+      if (!Array.isArray(body.workdays) || body.workdays.length === 0) {
+        return validation('Выберите хотя бы один рабочий день');
+      }
+      if (body.workdays.some((day) => !WEEKDAYS.includes(day))) {
+        return validation('Недопустимый код дня недели');
+      }
+      db.settings.workdays = [...body.workdays];
+    }
+    if (body.timezone !== undefined) {
+      const timezone = String(body.timezone).trim();
+      // CAL-2: валидируется как IANA-идентификатор.
+      if (!timezone || !isKnownTimezone(timezone)) {
+        return validation('Неизвестный часовой пояс', {
+          timezone: 'IANA, например Asia/Yekaterinburg',
+        });
+      }
+      db.settings.timezone = timezone;
+    }
+    if (body.deadline_reminder_time !== undefined) {
+      const time = String(body.deadline_reminder_time).trim();
+      // CAL-3: HH:MM, 00:00–23:59.
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+        return validation('Время напоминания в формате HH:MM', { deadline_reminder_time: 'HH:MM' });
+      }
+      db.settings.deadline_reminder_time = time;
+    }
+    if (body.push_enabled !== undefined) db.settings.push_enabled = Boolean(body.push_enabled);
+    if (body.app_name !== undefined) {
+      const name = String(body.app_name).trim();
+      if (!name) return validation('Название приложения не может быть пустым');
+      db.settings.app_name = name;
+    }
+    if (body.statuses !== undefined) {
+      const allowed = ['new', 'in_progress', 'deferred', 'done'];
+      if (
+        !Array.isArray(body.statuses) ||
+        body.statuses.length !== 4 ||
+        body.statuses.some((status) => !allowed.includes(status.code))
+      ) {
+        return validation('Передайте названия и цвета для 4 фиксированных статусов');
+      }
+      db.settings.statuses = body.statuses.map((status) => ({
+        code: status.code,
+        label: String(status.label).trim() || status.code,
+        color: String(status.color).trim() || '#8c8c8c',
+      }));
+    }
+
+    db.settings.updated_at = new Date().toISOString();
+    return json({ ...db.settings, holidays: db.holidays });
+  }),
+
+  // --- Справочники --------------------------------------------------------
+  http.get(`${API}/admin/problem-types`, ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    return json(db.problemTypes);
+  }),
+
+  http.post(`${API}/admin/problem-types`, async ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const body = await readBody<{ name?: string }>(request);
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name) return validation('Укажите название');
+    if (db.problemTypes.some((type) => type.name.toLowerCase() === name.toLowerCase())) {
+      return conflict('CONFLICT', 'Такой вид проблемы уже есть');
+    }
+    const item = { id: nextId(db.problemTypes), name };
+    db.problemTypes.push(item);
+    return created(item);
+  }),
+
+  http.patch(`${API}/admin/problem-types/:id`, async ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const item = db.problemTypes.find((type) => type.id === pathId(params.id));
+    if (!item) return notFound('Вид проблемы не найден');
+    const body = await readBody<{ name?: string }>(request);
+    if (body.name !== undefined) item.name = String(body.name).trim();
+    return json(item);
+  }),
+
+  http.delete(`${API}/admin/problem-types/:id`, ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const id = pathId(params.id) ?? 0;
+    const used = db.tickets.some((ticket) => ticket.problem_type_id === id);
+    if (used) return conflict('CONFLICT', 'Вид проблемы используется в заявках');
+    db.problemTypes = db.problemTypes.filter((type) => type.id !== id);
+    return noContent();
+  }),
+
+  http.get(`${API}/admin/equipment-types`, ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    return json(db.equipmentTypes);
+  }),
+
+  http.post(`${API}/admin/equipment-types`, async ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const body = await readBody<{ name?: string }>(request);
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name) return validation('Укажите название');
+    const item = { id: nextId(db.equipmentTypes), name };
+    db.equipmentTypes.push(item);
+    return created(item);
+  }),
+
+  http.patch(`${API}/admin/equipment-types/:id`, async ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const item = db.equipmentTypes.find((type) => type.id === pathId(params.id));
+    if (!item) return notFound('Тип оборудования не найден');
+    const body = await readBody<{ name?: string }>(request);
+    if (body.name !== undefined) item.name = String(body.name).trim();
+    return json(item);
+  }),
+
+  http.delete(`${API}/admin/equipment-types/:id`, ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const id = pathId(params.id) ?? 0;
+    if (db.equipment.some((item) => item.equipment_type_id === id && item.deleted_at === null)) {
+      return conflict('CONFLICT', 'Тип используется в оборудовании');
+    }
+    db.equipmentTypes = db.equipmentTypes.filter((type) => type.id !== id);
+    return noContent();
+  }),
+
+  // --- Праздники (CAL-1) --------------------------------------------------
+  http.get(`${API}/admin/holidays`, ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    return json(db.holidays);
+  }),
+
+  http.post(`${API}/admin/holidays`, async ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const body = await readBody<{ date?: string; name?: string }>(request);
+    const date = typeof body.date === 'string' ? body.date.trim() : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return validation('Дата праздника в формате YYYY-MM-DD');
+    }
+    if (db.holidays.some((holiday) => holiday.date === date)) {
+      return conflict('CONFLICT', 'Праздник на эту дату уже добавлен');
+    }
+    const holiday = {
+      id: nextId(db.holidays),
+      date,
+      name: typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'Праздник',
+    };
+    db.holidays.push(holiday);
+    return created(holiday);
+  }),
+
+  http.delete(`${API}/admin/holidays/:id`, ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const id = pathId(params.id) ?? 0;
+    if (!db.holidays.some((holiday) => holiday.id === id)) return notFound('Праздник не найден');
+    db.holidays = db.holidays.filter((holiday) => holiday.id !== id);
+    return noContent();
+  }),
+
+  // --- Корзина (TRASH-1..3) ----------------------------------------------
+  http.get(`${API}/admin/trash`, ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const url = new URL(request.url);
+    const type = url.searchParams.get('type') ?? 'ticket';
+    const page = Number(url.searchParams.get('page') ?? '1') || 1;
+    const size = Number(url.searchParams.get('size') ?? '20') || 20;
+
+    const items = db.trash
+      .filter((item) => item.type === type)
+      .sort((a, b) => b.deleted_at.localeCompare(a.deleted_at))
+      .map(toTrashItem);
+    return json(paginate(items, page, size));
+  }),
+
+  http.post(`${API}/admin/trash/:type/:id/restore`, ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const type = String(params.type);
+    const id = pathId(params.id) ?? 0;
+    const trashItem = db.trash.find((item) => item.type === type && item.id === id);
+    if (!trashItem) return notFound('Элемент корзины не найден');
+
+    if (type === 'ticket') {
+      const ticket = db.tickets.find((item) => item.id === id);
+      if (!ticket) return notFound('Заявка не найдена');
+      // TRASH-2: заявка возвращается со статусом и зданием, completed_at сохраняется.
+      ticket.deleted_at = null;
+      db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
+      return json({
+        ok: true,
+        warnings: findBuilding(ticket.building_id)?.is_active ? [] : ['Здание деактивировано'],
+      });
+    }
+
+    if (type === 'kb') {
+      // TRASH-2/TRASH-5: узел восстанавливается только при живом родителе или в корень.
+      const node = db.kbNodes.find((item) => item.id === id);
+      if (!node) return fail(409, 'CONFLICT', 'Узел восстанавливается только вместе с родителем');
+      db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
+      return json({ ok: true, warnings: ['Потомки узла не восстановлены'] });
+    }
+
+    const equipment = db.equipment.find((item) => item.id === id);
+    if (!equipment) return notFound('Оборудование не найдено');
+    if (!db.warehouses.some((warehouse) => warehouse.id === equipment.warehouse_id)) {
+      return fail(409, 'CONFLICT', 'Помещение оборудования больше не существует');
+    }
+    equipment.deleted_at = null;
+    db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
+    return json({ ok: true, warnings: [] });
+  }),
+
+  http.delete(`${API}/admin/trash/:type/:id`, ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const type = String(params.type);
+    const id = pathId(params.id) ?? 0;
+    if (!db.trash.some((item) => item.type === type && item.id === id)) {
+      return notFound('Элемент корзины не найден');
+    }
+
+    // TRASH-3: физическое удаление необратимо.
+    if (type === 'ticket') {
+      db.tickets = db.tickets.filter((ticket) => ticket.id !== id);
+      db.comments = db.comments.filter((comment) => comment.ticket_id !== id);
+      db.files = db.files.filter((file) => file.ticket_id !== id);
+    } else if (type === 'kb') {
+      db.kbNodes = db.kbNodes.filter((node) => node.id !== id);
+    } else {
+      db.equipment = db.equipment.filter((item) => item.id !== id);
+    }
+    db.trash = db.trash.filter((item) => !(item.type === type && item.id === id));
+    return noContent();
+  }),
+
+  // Сводная статистика — та же форма, что STATS-1.
+  http.get(`${API}/admin/stats`, ({ request }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const url = new URL(request.url);
+    const userId = Number(url.searchParams.get('user_id'));
+    const buildingId = Number(url.searchParams.get('building_id'));
+    return json(
+      computeStats(
+        Number.isSafeInteger(userId) && userId > 0 ? userId : null,
+        Number.isSafeInteger(buildingId) && buildingId > 0 ? buildingId : null,
+        url.searchParams.get('from') ?? undefined,
+        url.searchParams.get('to') ?? undefined,
+      ),
+    );
+  }),
+];
