@@ -122,6 +122,13 @@ type DictionariesAPI interface {
 	PublicProblemTypes(w http.ResponseWriter, r *http.Request)
 }
 
+// PushAPI — push-подписки и VAPID public key (Б8).
+type PushAPI interface {
+	PublicKey(w http.ResponseWriter, r *http.Request)
+	Subscribe(w http.ResponseWriter, r *http.Request)
+	Delete(w http.ResponseWriter, r *http.Request)
+}
+
 // Deps — зависимости HTTP-слоя. Передаются из main, чтобы сервер не создавал
 // подключения сам и оставался тестируемым.
 type Deps struct {
@@ -154,6 +161,9 @@ type Deps struct {
 	// Б7: настройки/праздники и справочники. nil — маршруты отдают 501.
 	SettingsHandler     SettingsAPI
 	DictionariesHandler DictionariesAPI
+
+	// PushHandler — подписки устройств и VAPID public key (Б8); nil — 501.
+	PushHandler PushAPI
 }
 
 // Server — собранный HTTP-сервер.

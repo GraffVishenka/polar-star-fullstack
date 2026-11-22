@@ -27,6 +27,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
 	"github.com/graffvishenka/polar-star-service/backend/internal/kb"
+	"github.com/graffvishenka/polar-star-service/backend/internal/notifications"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 	"github.com/graffvishenka/polar-star-service/backend/internal/settings"
 	"github.com/graffvishenka/polar-star-service/backend/internal/tickets"
@@ -123,9 +124,9 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		return err
 	}
 
-	// Платформенные зависимости: реальные часы и заглушка Notifier до Б8.
+	// Платформенные зависимости: реальные часы. Календарь и push-настройки
+	// берутся из Б7 (settings.CalendarProvider) ниже.
 	clock := platform.RealClock{}
-	notifier := &platform.LogNotifier{Logger: logger}
 
 	// Б7: настройки, праздники и рабочий календарь берутся из БД. Ошибка чтения
 	// не блокирует старт API: остаются значения по умолчанию (Пн–Сб,
@@ -137,6 +138,21 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		logger.Warn("settings: настройки недоступны, используются значения по умолчанию", "error", err)
 	}
 	calendar := settingsService.Provider()
+
+	// Б8: push-уведомления. Без VAPID-ключей транспорт переходит в no-op
+	// (NOTIF-1): API и подписки работают, но события не создаются. Настройки
+	// push (push_enabled, deadline_reminder_time, timezone) — из Б7 через
+	// pushSettingsAdapter; до готовности БД провайдер отдаёт дефолты.
+	notificationsRepository := notifications.NewMySQLRepository(pool)
+	pushSender := notifications.NewWebPushSender(cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
+	if !pushSender.Enabled() {
+		logger.Warn("push: VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY не заданы — уведомления отключены")
+	}
+	pushSettings := pushSettingsAdapter{provider: settingsService.Provider()}
+	notifier := notifications.NewDispatcher(notificationsRepository, pushSettings, clock, logger, pushSender.Enabled())
+	notificationsService := notifications.NewService(notificationsRepository, pushSender.PublicKey(),
+		pushSender.Enabled(), clock, logger)
+	notificationsHandler := notifications.NewHandler(notificationsService, logger)
 
 	repository := auth.NewMySQLRepository(pool)
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTokenTTL, clock)
@@ -220,6 +236,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		KBHandler:            kbHandler,
 		SettingsHandler:      settingsHandler,
 		DictionariesHandler:  dictionariesHandler,
+		PushHandler:          notificationsHandler,
 	})
 
 	server := &http.Server{
@@ -230,10 +247,10 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		IdleTimeout: 120 * time.Second,
 	}
 
-	// Воркеры-заглушки (outbox, напоминания, автоочистка) отключаются вместе с
-	// контекстом; реальные реализации появятся в Б8/Б10.
+	// Воркеры-заглушки для ещё не реализованных блоков (корзина — Б10);
+	// outbox и напоминания Б8 запускаются отдельным worker'ом ниже.
 	workerCtx, stopWorkers := context.WithCancel(ctx)
-	workers := startWorkers(workerCtx, logger, calendar)
+	workers := startWorkers(workerCtx, logger)
 	defer func() {
 		stopWorkers()
 		workers.Wait()
@@ -242,6 +259,12 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	// Б3: раз в час удаляются файлы без привязки (linked_at IS NULL) старше
 	// 24 часов; ошибки очистки только логируются и не влияют на API.
 	go files.NewCleaner(filesRepo, filesStore, logger, clock, files.CleanerOptions{}).Run(workerCtx)
+
+	// Б8: каждые 30 секунд отправляется outbox и проверяется время ежедневных
+	// напоминаний; повторный запуск за день не дублирует доставку (NOTIF-7).
+	notificationWorker := notifications.NewWorker(notificationsRepository, pushSender, pushSettings,
+		notifier, clock, logger)
+	go notificationWorker.Run(workerCtx)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -294,3 +317,20 @@ func (a ticketSettingsAdapter) Calendar() platform.Calendar { return a.provider.
 func (a ticketSettingsAdapter) StatusStyle(status tickets.Status) (string, string) {
 	return a.provider.StatusLabel(string(status)), a.provider.StatusColor(string(status))
 }
+
+// pushSettingsAdapter связывает настройки Б7 с уведомлениями Б8: push_enabled,
+// deadline_reminder_time и timezone берутся из актуального снапшота
+// CalendarProvider. Адаптер объявлен в cmd/api, чтобы домены settings и
+// notifications не зависели друг от друга.
+type pushSettingsAdapter struct {
+	provider *settings.CalendarProvider
+}
+
+// Enabled — push_enabled (NOTIF-6).
+func (a pushSettingsAdapter) Enabled() bool { return a.provider.PushEnabled() }
+
+// ReminderTime — deadline_reminder_time в формате HH:MM (CAL-3).
+func (a pushSettingsAdapter) ReminderTime() string { return a.provider.ReminderTime() }
+
+// Timezone — часовой пояс приложения (CAL-2).
+func (a pushSettingsAdapter) Timezone() *time.Location { return a.provider.Location() }

@@ -6,8 +6,6 @@ import (
 	"runtime/debug"
 	"sync"
 	"time"
-
-	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 )
 
 // workerSpec описывает фоновый процесс. Реализации доменов подключаются в
@@ -18,12 +16,11 @@ type workerSpec struct {
 	run   func(ctx context.Context) error
 }
 
-// startWorkers запускает воркеры-заглушки. Они не выполняют полезной работы,
-// но фиксируют каркас фоновых процессов и корректное завершение по контексту.
-// Реальные outbox/напоминания/автоочистка появятся в Б8/Б10.
-func startWorkers(ctx context.Context, logger *slog.Logger, calendar platform.Calendar) *sync.WaitGroup {
+// startWorkers запускает воркеры-заглушки для ещё не реализованных блоков
+// (корзина — Б10). Outbox и напоминания Б8 запускаются отдельно в main.
+func startWorkers(ctx context.Context, logger *slog.Logger) *sync.WaitGroup {
 	var wg sync.WaitGroup
-	for _, spec := range stubWorkers(logger, calendar) {
+	for _, spec := range stubWorkers(logger) {
 		wg.Add(1)
 		go func(spec workerSpec) {
 			defer wg.Done()
@@ -56,26 +53,9 @@ func runSafely(ctx context.Context, logger *slog.Logger, spec workerSpec) {
 	}
 }
 
-// stubWorkers — перечень фоновых процессов из PLAN §3.7, §3.10, Б3.
-func stubWorkers(logger *slog.Logger, calendar platform.Calendar) []workerSpec {
+// stubWorkers — перечень ещё не реализованных фоновых процессов (PLAN §3.10).
+func stubWorkers(logger *slog.Logger) []workerSpec {
 	return []workerSpec{
-		{
-			name:  "outbox-push",
-			every: 30 * time.Second, // NOTIF-3: опрос outbox раз в 30 секунд
-			run: func(context.Context) error {
-				logger.Debug("worker stub: outbox пуст (реализация — Б8)")
-				return nil
-			},
-		},
-		{
-			name:  "deadline-reminders",
-			every: time.Minute, // NOTIF-2: ежедневно в deadline_reminder_time по timezone
-			run: func(context.Context) error {
-				logger.Debug("worker stub: напоминания о дедлайне (реализация — Б8)",
-					"today", calendar.FormatDate(calendar.Today()))
-				return nil
-			},
-		},
 		{
 			name:  "trash-cleanup",
 			every: 6 * time.Hour, // TRASH-4: автоочистка старше 90 дней
