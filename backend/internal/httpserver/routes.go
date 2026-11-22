@@ -43,12 +43,13 @@ func (s *Server) routes() http.Handler {
 		// ПУБЛИЧНЫЙ ПЕРИМЕТР (PUB-1..PUB-7). Лимиты AUTH-3:
 		// создание заявки 5/10 мин на IP, здания 120/10 мин на IP.
 		api.With(middleware.RateLimit(s.publicBuildingsLimiter, middleware.ClientIPKey)).
-			Get("/public/buildings", s.notImplemented)
+			Get("/public/buildings", s.publicBuildings)
 		api.With(middleware.RateLimit(s.publicTicketsLimiter, middleware.ClientIPKey)).
-			Post("/public/tickets", s.notImplemented)
-		api.Get("/public/tickets", s.notImplemented)
-		api.Get("/public/tickets/{token}", s.notImplemented)
-		api.Post("/public/tickets/{token}/comments", s.notImplemented)
+			Post("/public/tickets", s.publicCreateTicket)
+		api.Get("/public/tickets", s.publicListTickets)
+		api.Get("/public/tickets/{token}", s.publicGetTicket)
+		api.Get("/public/tickets/{token}/comments", s.publicListComments)
+		api.Post("/public/tickets/{token}/comments", s.publicAddComment)
 		api.Get("/public/tickets/{token}/export.docx", s.notImplemented)
 
 		// Файлы анонимной заявки (Б3, TICKET-13/TICKET-14).
@@ -97,16 +98,16 @@ func (s *Server) routes() http.Handler {
 	return r
 }
 
-// authorizedRoutes — маршруты USER/ADMIN (заглушки Б1).
+// authorizedRoutes — маршруты USER/ADMIN.
 func (s *Server) authorizedRoutes(r chi.Router) {
 	// Заявки (TICKET-*): USER видит только своё здание, ADMIN — все.
-	r.Get("/tickets", s.notImplemented)
-	r.Post("/tickets", s.notImplemented)
-	r.Get("/tickets/{id}", s.notImplemented)
-	r.Patch("/tickets/{id}", s.notImplemented)
+	r.Get("/tickets", s.ticketsList)
+	r.Post("/tickets", s.ticketsCreate)
+	r.Get("/tickets/{id}", s.ticketsGet)
+	r.Patch("/tickets/{id}", s.ticketsUpdate)
 	r.Get("/tickets/{id}/export.docx", s.notImplemented)
-	r.Get("/tickets/{id}/comments", s.notImplemented)
-	r.Post("/tickets/{id}/comments", s.notImplemented)
+	r.Get("/tickets/{id}/comments", s.ticketsListComments)
+	r.Post("/tickets/{id}/comments", s.ticketsCreateComment)
 
 	// Файлы (Б3): загрузка и выдача под аутентификацией; HEAD нужен для
 	// корректной работы плееров и http.ServeContent.
@@ -170,8 +171,9 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 }
 
 // adminRoutes — маршруты только для ADMIN (PLAN §3.13).
-func (s *Server) adminRoutes(r chi.Router) { // Заявки: удаление в корзину — только ADMIN (TICKET-12).
-	r.Delete("/tickets/{id}", s.notImplemented)
+func (s *Server) adminRoutes(r chi.Router) {
+	// Заявки: удаление в корзину — только ADMIN (TICKET-12).
+	r.Delete("/tickets/{id}", s.ticketsDelete)
 
 	// БЗ: удаление и тумблер видимости — только ADMIN (KB-3, KB-7).
 	r.Delete("/kb/nodes/{id}", s.notImplemented)
@@ -270,4 +272,110 @@ func (s *Server) usersAssignable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.UsersHandler.Assignable(w, r)
+}
+
+// Обёртки Б5: при отсутствии handler'ов (тесты других блоков) маршруты
+// остаются заглушками 501; в проде main всегда передаёт tickets.Handler.
+func (s *Server) ticketsList(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.TicketsHandler.List(w, r)
+}
+
+func (s *Server) ticketsCreate(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.TicketsHandler.Create(w, r)
+}
+
+func (s *Server) ticketsGet(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.TicketsHandler.Get(w, r)
+}
+
+func (s *Server) ticketsUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.TicketsHandler.Update(w, r)
+}
+
+func (s *Server) ticketsDelete(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.TicketsHandler.Delete(w, r)
+}
+
+func (s *Server) ticketsListComments(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.TicketsHandler.ListComments(w, r)
+}
+
+func (s *Server) ticketsCreateComment(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.TicketsHandler.CreateComment(w, r)
+}
+
+func (s *Server) publicBuildings(w http.ResponseWriter, r *http.Request) {
+	if s.deps.PublicTicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.PublicTicketsHandler.PublicBuildings(w, r)
+}
+
+func (s *Server) publicListTickets(w http.ResponseWriter, r *http.Request) {
+	if s.deps.PublicTicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.PublicTicketsHandler.PublicList(w, r)
+}
+
+func (s *Server) publicCreateTicket(w http.ResponseWriter, r *http.Request) {
+	if s.deps.PublicTicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.PublicTicketsHandler.PublicCreate(w, r)
+}
+
+func (s *Server) publicGetTicket(w http.ResponseWriter, r *http.Request) {
+	if s.deps.PublicTicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.PublicTicketsHandler.PublicGet(w, r)
+}
+
+func (s *Server) publicListComments(w http.ResponseWriter, r *http.Request) {
+	if s.deps.PublicTicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.PublicTicketsHandler.PublicComments(w, r)
+}
+
+func (s *Server) publicAddComment(w http.ResponseWriter, r *http.Request) {
+	if s.deps.PublicTicketsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.PublicTicketsHandler.PublicAddComment(w, r)
 }

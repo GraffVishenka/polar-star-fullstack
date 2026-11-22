@@ -26,6 +26,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
+	"github.com/graffvishenka/polar-star-service/backend/internal/tickets"
 	"github.com/graffvishenka/polar-star-service/backend/internal/users"
 )
 
@@ -159,20 +160,36 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	equipmentHandler := equipment.NewHandler(
 		equipment.NewService(equipment.NewMySQLRepository(pool)), logger)
 
+	// Б5: заявки. До готовности Б7 настройки статические (deadline_days=2);
+	// вложения привязываются к комментариям через files.Service (Б3).
+	ticketsRepository := tickets.NewMySQLRepository(pool)
+	ticketsSettings := tickets.NewStaticSettings(2, calendar)
+	ticketsService := tickets.NewService(ticketsRepository, usersRepository, ticketsSettings,
+		clock, notifier, tickets.NewFilesAttacher(filesService), logger)
+	ticketsHandler := tickets.NewHandler(ticketsService, logger)
+
+	// Б5 подключает проверки доступа к файлам заявок (ТЗ TICKET-7/TICKET-13):
+	// публичные вложения — по токену заявки, авторизованные — по её зданию.
+	// Без этих авторизаторов файлы заявок были бы доступны/недоступны неверно.
+	filesService.SetTicketAuthorizer(tickets.NewTicketTokenAuthorizer(ticketsRepository))
+	filesService.SetFileAccessAuthorizer(tickets.NewFileAccessAuthorizer(ticketsRepository, ticketsRepository))
+
 	httpServer := httpserver.New(httpserver.Deps{
-		Config:           cfg,
-		Logger:           logger,
-		DB:               pool,
-		Clock:            clock,
-		Calendar:         calendar,
-		Notifier:         notifier,
-		AuthService:      authService,
-		AuthHandler:      authHandler,
-		Authenticator:    authenticator,
-		UsersHandler:     usersHandler,
-		FilesHandler:     filesHandler,
-		BuildingsHandler: buildingsHandler,
-		EquipmentHandler: equipmentHandler,
+		Config:               cfg,
+		Logger:               logger,
+		DB:                   pool,
+		Clock:                clock,
+		Calendar:             calendar,
+		Notifier:             notifier,
+		AuthService:          authService,
+		AuthHandler:          authHandler,
+		Authenticator:        authenticator,
+		UsersHandler:         usersHandler,
+		FilesHandler:         filesHandler,
+		BuildingsHandler:     buildingsHandler,
+		EquipmentHandler:     equipmentHandler,
+		TicketsHandler:       ticketsHandler,
+		PublicTicketsHandler: ticketsHandler,
 	})
 
 	server := &http.Server{

@@ -27,10 +27,13 @@ type NotificationEvent struct {
 	BuildingID *int64
 	// UserIDs — явные получатели (для TICKET_ASSIGNED/NEW_COMMENT).
 	UserIDs []int64
-	Title   string
-	Body    string
-	URL     string
-	Tag     string
+	// ActorUserID — автор действия: получатели не должны получать уведомление
+	// о собственном действии (NOTIF-2: «кроме автора»). 0 — аноним.
+	ActorUserID int64
+	Title       string
+	Body        string
+	URL         string
+	Tag         string
 	// DedupKey — ключ идемпотентности событий напоминаний (NOTIF-7).
 	DedupKey string
 	Payload  map[string]any
