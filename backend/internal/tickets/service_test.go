@@ -158,6 +158,9 @@ func (r *fakeRepo) List(_ context.Context, params ListParams) ([]*Ticket, int, e
 		if params.ExecutorID != nil && (ticket.ExecutorID == nil || *ticket.ExecutorID != *params.ExecutorID) {
 			continue
 		}
+		if params.ExecutorNone && ticket.ExecutorID != nil {
+			continue
+		}
 		if params.ProblemTypeID != nil && ticket.ProblemTypeID != *params.ProblemTypeID {
 			continue
 		}
@@ -918,4 +921,26 @@ func TestNotifyCommentRecipients(t *testing.T) {
 	if !found {
 		t.Fatalf("событие NEW_COMMENT не отправлено: %+v", f.notifier.events)
 	}
+}
+
+// Ф2: `executor_id=none` — только заявки без исполнителя (executor_id IS NULL).
+func TestList_ExecutorNoneFilter(t *testing.T) {
+	f := newFixture(t, "2026-11-20 10:00")
+	executor := int64Ptr(5)
+	f.repo.addTicket(&Ticket{BuildingID: 1, ApplicantName: "Без исполнителя", Cabinet: "1", ProblemTypeID: 10})
+	f.repo.addTicket(&Ticket{BuildingID: 1, ApplicantName: "С исполнителем", Cabinet: "2", ProblemTypeID: 10, ExecutorID: executor})
+
+	result, err := f.service.List(context.Background(), f.userActor(1), ListFilter{ExecutorNone: true})
+	if err != nil {
+		t.Fatalf("List executor_id=none: %v", err)
+	}
+	if result.Total != 1 || result.Items[0].ApplicantName != "Без исполнителя" {
+		t.Fatalf("фильтр none: %+v", result.Items)
+	}
+
+	// Одновременно id и none — противоречие → 422.
+	_, err = f.service.List(context.Background(), f.userActor(1), ListFilter{
+		ExecutorID: executor, ExecutorNone: true,
+	})
+	requireAPIError(t, err, 422, apierr.CodeValidation)
 }

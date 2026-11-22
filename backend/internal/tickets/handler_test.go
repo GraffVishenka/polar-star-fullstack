@@ -148,6 +148,33 @@ func TestHandler_InvalidPagination(t *testing.T) {
 	}
 }
 
+// Ф2: сентинел executor_id=none фильтрует заявки без исполнителя.
+func TestHandler_ExecutorNoneFilter(t *testing.T) {
+	handler, f := newTestHandler(t)
+	f.repo.addTicket(&Ticket{BuildingID: 1, ApplicantName: "Без исполнителя", Cabinet: "1", ProblemTypeID: 10})
+	f.repo.addTicket(&Ticket{
+		BuildingID: 1, ApplicantName: "С исполнителем", Cabinet: "2", ProblemTypeID: 10,
+		ExecutorID: int64Ptr(5),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tickets?executor_id=none", nil)
+	req = withActor(req, f.userActor(1))
+	rec := perform(handler.List, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Items []TicketListItemDTO `json:"items"`
+		Total int                 `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if body.Total != 1 || len(body.Items) != 1 || body.Items[0].ApplicantName != "Без исполнителя" {
+		t.Fatalf("executor_id=none: %+v", body)
+	}
+}
+
 func TestHandler_CommentEmptyText422(t *testing.T) {
 	handler, f := newTestHandler(t)
 	ticket := f.repo.addTicket(&Ticket{BuildingID: 1, ApplicantName: "A", Cabinet: "1", ProblemTypeID: 10})
