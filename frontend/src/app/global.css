@@ -1,0 +1,335 @@
+/* Базовые стили приложения. Компоненты antd настраиваются темой (src/app/theme.ts). */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f5f7fa;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* --- Бренд --------------------------------------------------------------- */
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand__icon {
+  font-size: 22px;
+  color: #1677ff;
+}
+
+.brand__title {
+  font-size: 16px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.brand__subtitle {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.brand--compact .brand__title {
+  font-size: 15px;
+}
+
+/* --- Публичный layout ---------------------------------------------------- */
+
+.public-shell {
+  min-height: 100vh;
+  background: #fff;
+}
+
+.public-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: auto;
+  min-height: 60px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #f0f0f0;
+  backdrop-filter: blur(6px);
+}
+
+.public-header__inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 44px;
+}
+
+.public-header__menu {
+  min-width: 0;
+  border-bottom: none !important;
+  background: transparent;
+}
+
+.public-header__actions {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.public-header__switcher {
+  max-width: 260px;
+}
+
+.public-content {
+  background: #f5f7fa;
+}
+
+.public-content__inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+
+.public-footer {
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+}
+
+.page-hero {
+  background: linear-gradient(135deg, #e6f4ff 0%, #f5f7fa 60%);
+  border: 1px solid #e6f4ff;
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.building-card {
+  height: 100%;
+  border-radius: 12px;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.building-card:hover,
+.building-card:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(22, 119, 255, 0.12);
+  outline: none;
+}
+
+/* --- Рабочий layout ------------------------------------------------------ */
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+  padding: 0 16px;
+  height: auto;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+}
+
+.app-header__inner {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  min-height: 44px;
+}
+
+.app-header__menu {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-bottom: none !important;
+  background: transparent;
+}
+
+.app-header__right {
+  flex: 0 0 auto;
+}
+
+.app-header__user-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-content {
+  padding: 0;
+}
+
+.app-content__inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+
+.app-footer {
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+  text-align: center;
+}
+
+/* --- Админ-панель -------------------------------------------------------- */
+
+.admin-layout {
+  min-height: calc(100vh - 60px);
+  background: #f5f7fa;
+}
+
+.admin-sider {
+  border-right: 1px solid #f0f0f0;
+}
+
+.admin-sider__inner {
+  padding: 16px 8px;
+  min-height: 100%;
+}
+
+.admin-sider__brand {
+  padding: 0 12px 8px;
+}
+
+.admin-menu {
+  flex: 1 1 auto;
+}
+
+.admin-content {
+  padding: 0;
+}
+
+.admin-content__inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+
+/* --- Дерево навигации ---------------------------------------------------- */
+
+.tree-nav,
+.tree-nav__children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-nav__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding-block: 2px;
+  padding-inline-end: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.tree-nav__row:hover {
+  background: #f5f7fa;
+}
+
+.tree-nav__row[aria-current='page'] {
+  background: #e6f4ff;
+}
+
+/* --- Загрузка файлов ----------------------------------------------------- */
+
+.file-uploader__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px 12px;
+  text-align: center;
+  border: 1px dashed #d9d9d9;
+  border-radius: 10px;
+  background: #fafafa;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.file-uploader__dropzone:hover,
+.file-uploader__dropzone:focus-visible {
+  border-color: #1677ff;
+  background: #f0f8ff;
+  outline: none;
+}
+
+.file-uploader__dropzone--active {
+  border-color: #1677ff;
+  background: #e6f4ff;
+}
+
+.file-uploader__dropzone--disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* --- Прочее -------------------------------------------------------------- */
+
+.login-shell {
+  background: linear-gradient(160deg, #e6f4ff 0%, #f5f7fa 55%, #ffffff 100%);
+}
+
+/* Адаптив от 375 px (NFR-3). */
+@media (max-width: 575px) {
+  .brand__subtitle {
+    display: none;
+  }
+
+  .public-header__menu {
+    display: none;
+  }
+
+  .public-content__inner,
+  .app-content__inner,
+  .admin-content__inner {
+    padding: 16px 12px 24px;
+  }
+
+  .page-hero {
+    padding: 16px;
+  }
+
+  .app-header__user-name {
+    display: none;
+  }
+
+  .public-header__switcher {
+    max-width: 100%;
+  }
+}
+
+/* Спрятанные визуально, но доступные скринридеру подписи. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
