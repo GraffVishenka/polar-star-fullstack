@@ -14,6 +14,9 @@ import { ChangePasswordPage } from '@/pages/auth/ChangePasswordPage';
 import { AdminBuildingsPage } from '@/pages/admin/buildings/AdminBuildingsPage';
 import { AdminKbPage } from '@/pages/admin/kb/AdminKbPage';
 import { AdminTrashPage } from '@/pages/admin/trash/AdminTrashPage';
+import { DictionariesPage } from '@/pages/admin/dictionaries/DictionariesPage';
+import { SettingsPage } from '@/pages/admin/settings/SettingsPage';
+import { UsersPage } from '@/pages/admin/users/UsersPage';
 import { EquipmentPage } from '@/pages/equipment/EquipmentPage';
 import { KbPage } from '@/pages/kb/KbPage';
 import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
@@ -28,18 +31,10 @@ export const adminRoutes: RouteObject = {
   ),
   children: [
     { index: true, element: <Navigate to="users" replace /> },
-    {
-      path: 'users',
-      element: <PlaceholderPage title="Пользователи" block="Ф6" owner="fe-2" />,
-    },
-    {
-      path: 'dictionaries',
-      element: <PlaceholderPage title="Справочники" block="Ф6" owner="fe-2" />,
-    },
-    {
-      path: 'settings',
-      element: <PlaceholderPage title="Настройки" block="Ф6" owner="fe-2" />,
-    },
+    // Ф6 (fe-2): пользователи, справочники и настройки/время.
+    { path: 'users', element: <UsersPage /> },
+    { path: 'dictionaries', element: <DictionariesPage /> },
+    { path: 'settings', element: <SettingsPage /> },
     {
       path: 'kb',
       element: <AdminKbPage />,
