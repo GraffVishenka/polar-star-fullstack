@@ -20,6 +20,7 @@ import { UsersPage } from '@/pages/admin/users/UsersPage';
 import { EquipmentPage } from '@/pages/equipment/EquipmentPage';
 import { KbPage } from '@/pages/kb/KbPage';
 import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
+import { ProfilePage } from '@/pages/profile/ProfilePage';
 import { TicketsPage } from '@/pages/tickets/TicketsPage';
 
 export const adminRoutes: RouteObject = {
@@ -71,10 +72,7 @@ export const appRoutes: RouteObject = {
       path: 'stats',
       element: <PlaceholderPage title="Моя статистика" block="Ф10" owner="fe-3" />,
     },
-    {
-      path: 'profile',
-      element: <PlaceholderPage title="Профиль" block="Ф10" owner="fe-3" />,
-    },
+    { path: 'profile', element: <ProfilePage /> },
     adminRoutes,
   ],
 };
