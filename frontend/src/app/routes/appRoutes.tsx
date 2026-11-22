@@ -11,6 +11,9 @@ import { RequireAuth, RequireRole } from '@/auth/guards';
 import { AdminLayout } from '@/layouts/AdminLayout';
 import { AppLayout } from '@/layouts/AppLayout';
 import { ChangePasswordPage } from '@/pages/auth/ChangePasswordPage';
+import { AdminBuildingsPage } from '@/pages/admin/buildings/AdminBuildingsPage';
+import { AdminKbPage } from '@/pages/admin/kb/AdminKbPage';
+import { AdminTrashPage } from '@/pages/admin/trash/AdminTrashPage';
 import { EquipmentPage } from '@/pages/equipment/EquipmentPage';
 import { KbPage } from '@/pages/kb/KbPage';
 import { PlaceholderPage } from '@/pages/placeholders/PlaceholderPage';
@@ -38,8 +41,12 @@ export const adminRoutes: RouteObject = {
       element: <PlaceholderPage title="Настройки" block="Ф6" owner="fe-2" />,
     },
     {
+      path: 'kb',
+      element: <AdminKbPage />,
+    },
+    {
       path: 'buildings',
-      element: <PlaceholderPage title="Здания и склады" block="Ф7" owner="fe-3" />,
+      element: <AdminBuildingsPage />,
     },
     {
       path: 'stats',
@@ -47,7 +54,7 @@ export const adminRoutes: RouteObject = {
     },
     {
       path: 'trash',
-      element: <PlaceholderPage title="Корзина" block="Ф7" owner="fe-3" />,
+      element: <AdminTrashPage />,
     },
   ],
 };

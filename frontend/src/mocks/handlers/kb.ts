@@ -115,7 +115,10 @@ export const kbHandlers = [
     }
 
     const parentId = normalizeParent(body.parent_id);
-    if (parentId === 'invalid' || (parentId !== null && !db.kbNodes.some((n) => n.id === parentId))) {
+    if (
+      parentId === 'invalid' ||
+      (parentId !== null && !db.kbNodes.some((n) => n.id === parentId))
+    ) {
       // KB-2: удалённый/несуществующий родитель → 400.
       return fail(400, 'VALIDATION_ERROR', 'Родительский раздел не найден');
     }
@@ -261,7 +264,8 @@ export const kbHandlers = [
 
     node.parent_id = parentId;
     syncHiddenFlag(node);
-    const insertAt = beforeId === null ? siblings.length : siblings.findIndex((i) => i.id === beforeId);
+    const insertAt =
+      beforeId === null ? siblings.length : siblings.findIndex((i) => i.id === beforeId);
     const ordered = [...siblings];
     ordered.splice(insertAt, 0, node);
     reindex(parentId, ordered);
@@ -287,6 +291,13 @@ export const kbHandlers = [
       id: node.id,
       deleted_at: new Date().toISOString(),
       deleted_by_user_id: auth.user.id,
+      // TRASH-2: снимок корневого раздела — восстановление без потомков (TRASH-5).
+      snapshot: {
+        title: node.title,
+        parent_id: node.parent_id,
+        sort_order: node.sort_order,
+        is_hidden_for_anon: node.is_hidden_for_anon,
+      },
     });
     return json({ deleted_id: node.id, descendants_deleted: removed.length - 1 });
   }),
