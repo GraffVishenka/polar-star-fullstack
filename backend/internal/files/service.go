@@ -61,6 +61,18 @@ type FileAccessAuthorizer interface {
 	CanReadFile(ctx context.Context, user *auth.User, file *File) (bool, error)
 }
 
+// KBMediaAuthorizer — доступ анонима к медиа базы знаний без токена заявки
+// (KB-5/KB-7): файл должен иметь scope=kb и быть вставленным в content_html
+// хотя бы одного публичного узла БЗ.
+//
+// Интерфейс объявлен в files, чтобы пакет не зависел от internal/kb: реализацию
+// даёт kb.Service (SetKBMediaAuthorizer в cmd/api). Пока авторизатор не задан,
+// публичная выдача без токена отвечает 404.
+type KBMediaAuthorizer interface {
+	// PublicKBFile сообщает, что файл реально присутствует в публичной статье.
+	PublicKBFile(ctx context.Context, fileID int64) (bool, error)
+}
+
 // Options — зависимости сервиса.
 type Options struct {
 	// Clock — источник времени (NFR-7: без time.Now() в бизнес-логике).
@@ -86,6 +98,7 @@ type Service struct {
 	maxUpload  int64
 	authorizer TicketTokenAuthorizer
 	access     FileAccessAuthorizer
+	kbMedia    KBMediaAuthorizer
 }
 
 // NewService создаёт сервис файлов.
@@ -114,6 +127,10 @@ func (s *Service) SetTicketAuthorizer(a TicketTokenAuthorizer) { s.authorizer = 
 // SetFileAccessAuthorizer подключает проверку доступа сотрудника к файлам
 // заявок (TICKET-7). Без неё файлы заявок доступны любому авторизованному.
 func (s *Service) SetFileAccessAuthorizer(a FileAccessAuthorizer) { s.access = a }
+
+// SetKBMediaAuthorizer подключает проверку «файл вставлен в публичную статью
+// БЗ» для выдачи `GET /api/public/files/{id}` без токена (Б6).
+func (s *Service) SetKBMediaAuthorizer(a KBMediaAuthorizer) { s.kbMedia = a }
 
 // MaxUploadBytes — общий предел размера тела загрузки (для MaxBytesReader).
 func (s *Service) MaxUploadBytes() int64 { return s.maxUpload }
@@ -236,6 +253,12 @@ func (s *Service) Open(ctx context.Context, id int64) (*File, io.ReadSeekCloser,
 	return s.openContent(f)
 }
 
+// Get возвращает метаданные файла, не открывая содержимое. Нужен домену БЗ для
+// проверки ссылок на медиа (KB-5: файл существует и имеет scope=kb).
+func (s *Service) Get(ctx context.Context, id int64) (*File, error) {
+	return s.fileByID(ctx, id)
+}
+
 // OpenForUser выдаёт файл сотруднику с проверкой доступа к заявке (TICKET-7):
 // файлы области ticket проверяются FileAccessAuthorizer (реализация Б5 —
 // здание заявки), медиа БЗ доступны всем авторизованным (PLAN §3.1).
@@ -301,6 +324,34 @@ func (s *Service) OpenPublic(ctx context.Context, id int64, token string) (*File
 		return nil, nil, apierr.NotFound("Файл не найден")
 	}
 	return s.Open(ctx, id)
+}
+
+// OpenPublicKB открывает медиа базы знаний для анонима без токена заявки
+// (KB-5/KB-7): файл отдаётся, только если он scope=kb и вставлен в content_html
+// хотя бы одного публичного узла (скрытый/удалённый корень не считается).
+//
+// Проверка «вставлен в публичную статью» делегируется KBMediaAuthorizer
+// (реализация — kb.Service), поэтому files не зависит от internal/kb.
+func (s *Service) OpenPublicKB(ctx context.Context, id int64) (*File, io.ReadSeekCloser, error) {
+	if s.kbMedia == nil {
+		return nil, nil, apierr.NotFound("Файл не найден")
+	}
+	file, err := s.fileByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if file.Scope != ScopeKB {
+		// Вложения заявок не выдаются без токена никогда (TICKET-13).
+		return nil, nil, apierr.NotFound("Файл не найден")
+	}
+	referenced, merr := s.kbMedia.PublicKBFile(ctx, id)
+	if merr != nil {
+		return nil, nil, apierr.Internal(merr)
+	}
+	if !referenced {
+		return nil, nil, apierr.NotFound("Файл не найден")
+	}
+	return s.openContent(file)
 }
 
 // AttachToComment привязывает до 5 файлов к комментарию заявки (TICKET-14).
