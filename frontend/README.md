@@ -16,7 +16,9 @@ pnpm dev                       # http://localhost:5173, MSW включён
 
 Демо-доступ в MSW-режиме: `admin / admin12345` (ADMIN), `user / user12345`
 (сотрудник «Центрального офиса»), `bez-zdaniya / user12345` (USER без здания — баннер AUTH-9),
-`novichok / temp12345` (временный пароль → обязательная смена).
+`novichok / temp12345` (временный пароль → обязательная смена). Название приложения и
+названия/цвета статусов меняются в `/admin/settings` и сразу видны на публичном
+дашборде (`GET /api/public/settings`, с фолбэком на `app/config`).
 
 Работа с реальным API:
 
@@ -193,9 +195,8 @@ Word-выгрузка уже стоит в `TicketDrawer` (`/tickets`) и на �
   `user_id/building_id/from/to` (`StatsExportButton` из `@/components/exports`).
 - **Сводка по сотрудникам**: если `GET /api/admin/stats` (без `user_id`) вернёт
   аддитивное поле `employees[]`, показывается таблица «Сводка по сотрудникам»;
-  без поля блок скрыт. В MSW уже смоделировано — нужна поддержка в контракте
-  (`employee_id`-поля согласовать с lead/be; в `src/api/types.ts` не правили,
-  тип лежит в `src/pages/stats/types.ts`).
+  без поля блок скрыт. Типы синхронизированы с контрактом в `src/api/types.ts`
+  (`EmployeeStats`, `StatsResponse.employees?`), в MSW агрегат уже отдаёт `employees`.
 - Пункт «Статистика» есть в шапке `AppLayout`; в меню профиля добавлен
   «Моя статистика» → `/stats`.
 - Метрики/просрочку/«в срок» считает сервер (NFR-7); клиент только отображает.
@@ -246,10 +247,10 @@ Push (NOTIF-1..NOTIF-5) работает только для USER/ADMIN и то�
 | `handlers/tickets.ts`      | `/tickets*`, комментарии, `export.docx`, `/users/assignable`                                                                                                               |
 | `handlers/kb.ts`           | `/kb/tree                                                                                                                                                                  | nodes*`, `move`, `visibility` |
 | `handlers/equipment.ts`    | `/buildings*`, `/warehouses*`, `/equipment*`, `inventory.xlsx`                                                                                                             |
-| `handlers/admin.ts`        | `/admin/users*`, `/admin/settings`, справочники, праздники, `/admin/trash*`, `/admin/stats`                                                                                |
+| `handlers/admin.ts`        | `/admin/users*`, `/admin/settings`, справочники (`include_inactive`), праздники (`POST/PATCH/DELETE`), `/admin/trash*`, `/admin/stats`                                     |
 | `handlers/stats.ts`        | `/stats/me`, `/stats/export.xlsx`                                                                                                                                          |
 | `handlers/files.ts`        | `/files` (multipart), `/files/:id`                                                                                                                                         |
-| `handlers/dictionaries.ts` | `GET /api/problem-types` — аддитивное расширение, см. «Ограничения Ф2»                                                                                                     |
+| `handlers/dictionaries.ts` | `GET /api/problem-types`, `/api/equipment-types` (`include_inactive` — только ADMIN), `GET /api/public/settings`                                                           |
 | `handlers/health.ts`       | `/health`, `/health/ready`                                                                                                                                                 |
 
 Что моделируется «как на сервере»:
@@ -288,8 +289,9 @@ Push (NOTIF-1..NOTIF-5) работает только для USER/ADMIN и то�
 - `src/api/types.ts` ручной до генерации из `openapi.yaml`.
 - MSW-сессия (refresh-cookie) живёт до перезагрузки страницы: в браузере cookie настоящая,
   в моках — модульная переменная. После F5 нужно войти заново.
-- `AppLayout` не запрашивает `app_name` из настроек (эндпоинт только для ADMIN) — используется
-  `VITE_APP_NAME`/константа.
+- `AppLayout` не запрашивает `app_name` из настроек — в шапке сотрудников остаётся
+  `VITE_APP_NAME`/константа. Публичная часть берёт `app_name` из
+  `GET /api/public/settings` (`usePublicSettings`) с фолбэком на константу.
 - Публичный дашборд и карточка заявки — каркас: полная версия в Ф5.
 - `public/sw.js` реализован в Ф9 (fe-3): push и клик по уведомлению, без кэширования API —
   см. раздел «Профиль и push-уведомления».
@@ -315,9 +317,9 @@ Push (NOTIF-1..NOTIF-5) работает только для USER/ADMIN и то�
 
 - **Контракт-гэпы**: два из трёх закрыты бэкендом Б5 — `GET /api/public/tickets/{token}/comments`
   (пагинация 50) и `POST /api/public/tickets/{token}/files` (алиас `/api/public/files?token=`)
-  уже в `openapi.yaml`, клиент использует их. Остаётся `GET /api/public/problem-types` —
-  анониму нужен справочник для формы (TICKET-4), в контракте он есть только у ADMIN
-  (`src/api/public.ts`, мок `handlers/public.ts`; нужен аддитивный эндпоинт).
+  уже в `openapi.yaml`, клиент использует их. Третий, `GET /api/public/problem-types`,
+  зафиксирован в контракте Б7 (только активные `id/name/sort_order`) — клиент и мок
+  приведены к нему.
 - Публичная доска не показывает `is_overdue`: TICKET-5 не включает флаг в карточку,
   поэтому просрочка отображается только в токен-карточке (NFR-7 — не считаем на клиенте).
 - Медиа статей БЗ в дереве/статье переписывается на `/api/public/files/{id}`
@@ -326,6 +328,24 @@ Push (NOTIF-1..NOTIF-5) работает только для USER/ADMIN и то�
   подменяют `uploadPublicCommentFile`; сам транспорт и лимиты проверяются в Ф1/Б3.
 - Word/Excel-выгрузки в Ф8 переведены на общий `useFileDownload` (см. раздел ниже);
   Ф11: Playwright-сценарии публичного периметра (приватное окно, cookie, Word, 375 px).
+
+## Синхронизация контракта (Б7/Ф11)
+
+- `GET /api/public/settings` (`PublicSettings`: `app_name` + 4 статуса) — единственный
+  источник имени приложения и подписей/цветов на публичных экранах: хук
+  `src/hooks/usePublicSettings.ts`, один ключ `queryKeys.publicSettings`;
+  при ошибке или неполном ответе — фолбэк на `app/config`, запрос один на все компоненты.
+- Справочники: `GET /api/problem-types` и `GET /api/equipment-types` отдают активные
+  значения (`include_inactive=true` учитывается только ADMIN); публичный
+  `GET /api/public/problem-types` — только `id/name/sort_order` и только активные
+  (`PublicProblemType`). В типах `ProblemType`/`EquipmentType` есть `sort_order`,
+  `is_active` (необязательные для совместимости фикстур) и аддитивный `usage_count`.
+- `PATCH /api/admin/holidays/{id}` (обязательная `date`, `409` при дубле); `name`
+  в моках и UI — аддитивное поле, контракт `Holiday` его не требует.
+- Корзина: добавлены `deleted_by_user_id`, `building_id`, `building_name`;
+  UI продолжает показывать `deleted_by_name` и предупреждения восстановления.
+- `employees[]` (`EmployeeStats`) — аддитивное поле агрегата `/api/admin/stats`
+  (для запроса с `user_id` отсутствует).
 
 ## Docker
 

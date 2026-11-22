@@ -11,13 +11,28 @@
 import { apiRequest } from './client';
 import type { EquipmentType, ProblemType, PublicSettings } from './types';
 
-export function fetchProblemTypesForSelection(): Promise<ProblemType[]> {
-  return apiRequest<ProblemType[]>('/problem-types');
+// Перегрузки: функции можно передавать в `queryFn` без аргументов (контекст
+// React Query не путается с параметрами) и вызывать с `include_inactive`.
+export function fetchProblemTypesForSelection(): Promise<ProblemType[]>;
+export function fetchProblemTypesForSelection(params: {
+  include_inactive?: boolean;
+}): Promise<ProblemType[]>;
+export function fetchProblemTypesForSelection(
+  params: { include_inactive?: boolean } = {},
+): Promise<ProblemType[]> {
+  // Контракт Б7: `include_inactive` учитывается только для ADMIN.
+  return apiRequest<ProblemType[]>('/problem-types', { query: params });
 }
 
 /** Типы оборудования для формы: активные значения справочника (EQ-2). */
-export function fetchEquipmentTypesForSelection(): Promise<EquipmentType[]> {
-  return apiRequest<EquipmentType[]>('/equipment-types');
+export function fetchEquipmentTypesForSelection(): Promise<EquipmentType[]>;
+export function fetchEquipmentTypesForSelection(params: {
+  include_inactive?: boolean;
+}): Promise<EquipmentType[]>;
+export function fetchEquipmentTypesForSelection(
+  params: { include_inactive?: boolean } = {},
+): Promise<EquipmentType[]> {
+  return apiRequest<EquipmentType[]>('/equipment-types', { query: params });
 }
 
 /**

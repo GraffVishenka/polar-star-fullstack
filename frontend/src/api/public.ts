@@ -6,7 +6,7 @@ import type {
   KbNode,
   KbTreeNode,
   Page,
-  ProblemType,
+  PublicProblemType,
   PublicBuilding,
   PublicCommentCreateRequest,
   PublicTicket,
@@ -73,14 +73,13 @@ export function publicTicketPath(token: string): string {
 }
 
 /**
- * Виды проблем для публичной формы (TICKET-4).
+ * Виды проблем для публичной формы (TICKET-4, Б7).
  *
- * Контракт §3.13 не отдаёт справочник анониму, а `problem_type_id` обязателен
- * (TICKET-2). MSW реализует `GET /api/public/problem-types`; это аддитивное
- * расширение — при фиксации `openapi.yaml` согласовать с lead/be.
+ * Контракт: `GET /api/public/problem-types` отдаёт только активные элементы
+ * и только `id`, `name`, `sort_order` (без `is_active`).
  */
-export function fetchPublicProblemTypes(): Promise<ProblemType[]> {
-  return apiRequest<ProblemType[]>('/public/problem-types', { skipAuth: true });
+export function fetchPublicProblemTypes(): Promise<PublicProblemType[]> {
+  return apiRequest<PublicProblemType[]>('/public/problem-types', { skipAuth: true });
 }
 
 /**

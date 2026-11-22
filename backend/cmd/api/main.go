@@ -23,6 +23,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/config"
 	"github.com/graffvishenka/polar-star-service/backend/internal/db"
 	"github.com/graffvishenka/polar-star-service/backend/internal/dictionaries"
+	"github.com/graffvishenka/polar-star-service/backend/internal/documents"
 	"github.com/graffvishenka/polar-star-service/backend/internal/equipment"
 	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
@@ -185,8 +186,8 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	// Б4: здания, склады, оборудование и журнал перемещений (EQ-1..EQ-7).
 	buildingsHandler := buildings.NewHandler(
 		buildings.NewService(buildings.NewMySQLRepository(pool)), logger)
-	equipmentHandler := equipment.NewHandler(
-		equipment.NewService(equipment.NewMySQLRepository(pool)), logger)
+	equipmentService := equipment.NewService(equipment.NewMySQLRepository(pool))
+	equipmentHandler := equipment.NewHandler(equipmentService, logger)
 
 	// Б7: настройки/праздники (CAL-1..CAL-3) и справочники видов проблем и
 	// типов оборудования.
@@ -225,6 +226,15 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		stats.Options{Calendar: calendar})
 	statsHandler := stats.NewHandler(statsService, logger)
 
+	// Б11: серверные выгрузки — Word-заявка, Excel-статистика и ведомость
+	// помещения. Название приложения и часовой пояс читаются из Б7 на каждый
+	// запрос, чтобы смена настроек применялась без перезапуска.
+	documentsHandler := documents.NewHandler(ticketsService, statsService, equipmentService,
+		documents.Options{
+			AppName: func() string { return settingsService.Provider().Settings().AppName },
+			Clock:   clock,
+		}, logger)
+
 	httpServer := httpserver.New(httpserver.Deps{
 		Config:               cfg,
 		Logger:               logger,
@@ -246,6 +256,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		DictionariesHandler:  dictionariesHandler,
 		PushHandler:          notificationsHandler,
 		StatsHandler:         statsHandler,
+		DocumentsHandler:     documentsHandler,
 	})
 
 	server := &http.Server{

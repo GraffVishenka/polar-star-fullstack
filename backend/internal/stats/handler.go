@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -73,11 +74,19 @@ func (h *Handler) Admin(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, NewStatsListDTO(items, h.svc.Location()))
 }
 
-// parseQuery разбирает `from`/`to` (даты `YYYY-MM-DD` в поясе приложения) и, при
-// withFilters, `user_id`/`building_id`. Некорректные значения — 422.
+// parseQuery разбирает параметры отчёта. Использует общий ParseQuery, чтобы
+// Excel-выгрузка Б11 трактовала период/фильтры ровно так же, как JSON API.
 func (h *Handler) parseQuery(r *http.Request, withFilters bool) (Query, error) {
-	loc := h.svc.Location()
-	values := r.URL.Query()
+	return ParseQuery(h.svc.Location(), r.URL.Query(), withFilters)
+}
+
+// ParseQuery разбирает `from`/`to` (даты `YYYY-MM-DD` в поясе приложения) и, при
+// withFilters, `user_id`/`building_id`. Некорректные значения — 422.
+// Экспортируется для Excel-выгрузки Б11 (STATS-3).
+func ParseQuery(loc *time.Location, values url.Values, withFilters bool) (Query, error) {
+	if loc == nil {
+		loc = time.UTC
+	}
 	query := Query{}
 
 	if raw := strings.TrimSpace(values.Get("from")); raw != "" {

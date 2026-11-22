@@ -13,17 +13,13 @@ import { Alert, Button, Col, Flex, Row, Skeleton, Tooltip, Typography } from 'an
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { fetchPublicTickets } from '@/api/public';
 import { queryKeys } from '@/app/queryClient';
-import {
-  APP_NAME,
-  PUBLIC_STATUS_ORDER,
-  TICKET_STATUS_COLORS,
-  TICKET_STATUS_LABELS,
-} from '@/app/config';
+import { PUBLIC_STATUS_ORDER } from '@/app/config';
 import { BuildingBadge } from '@/components/BuildingBadge';
 import { PublicNotFound } from './components/PublicNotFound';
 import { PublicStatusColumn } from './components/PublicStatusColumn';
 import { PublicTicketCreateModal } from './components/PublicTicketCreateModal';
 import { useAnonBuilding } from '@/hooks/useAnonBuilding';
+import { usePublicSettings } from '@/hooks/usePublicSettings';
 
 export function BuildingDashboardPage() {
   const { buildingId } = useParams<{ buildingId: string }>();
@@ -36,6 +32,8 @@ export function BuildingDashboardPage() {
     refetch,
     selectBuilding,
   } = useAnonBuilding();
+  // PUB-1: имя приложения и подписи/цвета статусов приходят из настроек.
+  const { appName, statusMeta: publicStatusMeta } = usePublicSettings();
 
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -68,12 +66,15 @@ export function BuildingDashboardPage() {
     return map;
   }, [tickets]);
 
-  /** Подписи/цвета статусов: серверные из карточек, иначе значения по умолчанию. */
+  /**
+   * Подписи/цвета статусов: приоритет — данные карточки с сервера
+   * (`status_label`/`status_color`), затем публичные настройки, затем конфиг.
+   */
   const statusMeta = (status: (typeof PUBLIC_STATUS_ORDER)[number]) => {
     const sample = tickets.find((ticket) => ticket.status === status);
     return {
-      label: sample?.status_label ?? TICKET_STATUS_LABELS[status],
-      color: sample?.status_color ?? TICKET_STATUS_COLORS[status],
+      label: sample?.status_label ?? publicStatusMeta[status].label,
+      color: sample?.status_color ?? publicStatusMeta[status].color,
     };
   };
 
@@ -176,7 +177,7 @@ export function BuildingDashboardPage() {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {isAllBuildings
               ? `Сводный обзор по ${buildings.length} активным зданиям · только чтение`
-              : `${APP_NAME} · открытых заявок: ${totalOpen}`}
+              : `${appName} · открытых заявок: ${totalOpen}`}
           </Typography.Text>
         </Flex>
 

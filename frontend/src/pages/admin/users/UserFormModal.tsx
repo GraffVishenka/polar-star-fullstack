@@ -13,11 +13,7 @@ import { Alert, Button, Form, Input, Modal, Select, Space, Typography } from 'an
 import { ReloadOutlined } from '@ant-design/icons';
 import type { AdminUser, Building, Role } from '@/api/types';
 import { ApiError } from '@/api/errors';
-import {
-  ROLE_LABELS,
-  adminErrorMessage,
-  generateTemporaryPassword,
-} from '../shared';
+import { ROLE_LABELS, adminErrorMessage, generateTemporaryPassword } from '../shared';
 
 export interface UserFormValues {
   login?: string;
@@ -75,7 +71,10 @@ export function UserFormModal({
       return;
     }
     // 422 адресные коды → ошибка у поля «Здание» (AUTH-4/AUTH-8).
-    if (error instanceof ApiError && (error.code === 'BUILDING_REQUIRED_FOR_USER' || error.code === 'BUILDING_INACTIVE')) {
+    if (
+      error instanceof ApiError &&
+      (error.code === 'BUILDING_REQUIRED_FOR_USER' || error.code === 'BUILDING_INACTIVE')
+    ) {
       form.setFields([{ name: 'building_id', errors: [error.message] }]);
       setGeneralError(null);
       return;

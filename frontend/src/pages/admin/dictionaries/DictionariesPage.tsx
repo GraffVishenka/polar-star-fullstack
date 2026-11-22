@@ -62,7 +62,8 @@ const DICTIONARIES: Record<DictionaryKind, DictionaryConfig> = {
     singular: 'вид проблемы',
     addLabel: 'Добавить вид проблемы',
     queryKey: queryKeys.problemTypes,
-    list: fetchProblemTypes,
+    // Админ-панель показывает и деактивированные значения (контракт Б7).
+    list: () => fetchProblemTypes({ include_inactive: true }),
     create: createProblemType,
     update: updateProblemType,
   },
@@ -71,7 +72,7 @@ const DICTIONARIES: Record<DictionaryKind, DictionaryConfig> = {
     singular: 'тип оборудования',
     addLabel: 'Добавить тип оборудования',
     queryKey: queryKeys.equipmentTypes,
-    list: fetchEquipmentTypes,
+    list: () => fetchEquipmentTypes({ include_inactive: true }),
     create: createEquipmentType,
     update: updateEquipmentType,
   },
@@ -169,9 +170,10 @@ function DictionaryFormModal({
 function DictionarySection({ kind }: { kind: DictionaryKind }) {
   const config = DICTIONARIES[kind];
   const queryClient = useQueryClient();
-  const [modal, setModal] = useState<{ mode: 'create' | 'edit'; item: DictionaryItem | null } | null>(
-    null,
-  );
+  const [modal, setModal] = useState<{
+    mode: 'create' | 'edit';
+    item: DictionaryItem | null;
+  } | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
 
   const query = useQuery({ queryKey: config.queryKey, queryFn: config.list });
@@ -182,7 +184,11 @@ function DictionarySection({ kind }: { kind: DictionaryKind }) {
   };
 
   const saveMutation = useMutation({
-    mutationFn: (input: { mode: 'create' | 'edit'; item: DictionaryItem | null; values: DictionaryFormValues }) => {
+    mutationFn: (input: {
+      mode: 'create' | 'edit';
+      item: DictionaryItem | null;
+      values: DictionaryFormValues;
+    }) => {
       const payload: DictionaryItemPayload & { name: string } = {
         name: (input.values.name ?? '').trim(),
         sort_order:
@@ -221,7 +227,10 @@ function DictionarySection({ kind }: { kind: DictionaryKind }) {
       key: 'name',
       render: (name: string, item) => (
         <Space size={6} wrap>
-          <Typography.Text strong={item.is_active !== false} type={item.is_active === false ? 'secondary' : undefined}>
+          <Typography.Text
+            strong={item.is_active !== false}
+            type={item.is_active === false ? 'secondary' : undefined}
+          >
             {name}
           </Typography.Text>
           {item.is_active === false ? (

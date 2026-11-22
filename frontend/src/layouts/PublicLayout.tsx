@@ -9,10 +9,11 @@ import { useCallback, useMemo } from 'react';
 import { BankOutlined, LoginOutlined, ReadOutlined } from '@ant-design/icons';
 import { Button, Flex, Layout, Menu, Space, Typography } from 'antd';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { APP_DESCRIPTION, APP_NAME } from '@/app/config';
+import { APP_DESCRIPTION } from '@/app/config';
 import { useAuth } from '@/auth/AuthContext';
 import { BuildingSelect } from '@/components/BuildingSelect';
 import { useAnonBuilding } from '@/hooks/useAnonBuilding';
+import { usePublicSettings } from '@/hooks/usePublicSettings';
 
 const { Header, Content, Footer } = Layout;
 
@@ -21,6 +22,8 @@ export function PublicLayout() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { buildings, isLoading, selectedBuilding, selectBuilding } = useAnonBuilding();
+  // PUB-1: имя приложения настраивается в админке; при недоступности API — фолбэк.
+  const { appName } = usePublicSettings();
 
   const currentBuildingId = useMemo(() => {
     const match = /^\/b\/(\d+)/.exec(location.pathname);
@@ -46,11 +49,11 @@ export function PublicLayout() {
     <Layout className="public-shell">
       <Header className="public-header">
         <Flex align="center" justify="space-between" gap={12} wrap className="public-header__inner">
-          <Link to="/" className="brand" aria-label={`${APP_NAME} — на главную`}>
+          <Link to="/" className="brand" aria-label={`${appName} — на главную`}>
             <BankOutlined className="brand__icon" />
             <Space direction="vertical" size={0}>
               <Typography.Text strong className="brand__title">
-                {APP_NAME}
+                {appName}
               </Typography.Text>
               <Typography.Text type="secondary" className="brand__subtitle">
                 {APP_DESCRIPTION}
@@ -104,7 +107,7 @@ export function PublicLayout() {
       <Footer className="public-footer">
         <Flex vertical align="center" gap={4}>
           <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-            {APP_NAME} · {APP_DESCRIPTION}
+            {appName} · {APP_DESCRIPTION}
           </Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             © {new Date().getFullYear()} Внутренний сервис. Сотрудникам — вход по логину.

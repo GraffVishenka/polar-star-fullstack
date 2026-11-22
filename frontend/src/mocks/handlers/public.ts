@@ -79,8 +79,15 @@ export const publicHandlers = [
     return json(buildings);
   }),
 
-  // TICKET-4: справочник видов проблем для публичной формы (аддитивно к §3.13).
-  http.get(`${API}/public/problem-types`, () => json(db.problemTypes)),
+  // TICKET-4 / Б7: только активные виды проблем и только id/name/sort_order.
+  http.get(`${API}/public/problem-types`, () =>
+    json(
+      db.problemTypes
+        .filter((type) => type.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+        .map((type) => ({ id: type.id, name: type.name, sort_order: type.sort_order })),
+    ),
+  ),
 
   // TICKET-5: с building_id — дашборд здания, без него — сводка «Все здания».
   http.get(`${API}/public/tickets`, ({ request }) => {
