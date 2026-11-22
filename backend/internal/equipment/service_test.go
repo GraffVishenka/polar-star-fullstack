@@ -29,6 +29,7 @@ type fakeRepo struct {
 	bulkErr   error
 
 	deletedID int64
+	deletedBy int64
 	created   *Equipment
 	nextID    int64
 }
@@ -106,7 +107,7 @@ func (r *fakeRepo) Update(_ context.Context, id int64, in UpdateInput) (*Equipme
 	return item, nil
 }
 
-func (r *fakeRepo) SoftDelete(_ context.Context, id int64) error {
+func (r *fakeRepo) SoftDelete(_ context.Context, id int64, deletedBy int64) error {
 	if r.deleteErr != nil {
 		return r.deleteErr
 	}
@@ -114,6 +115,7 @@ func (r *fakeRepo) SoftDelete(_ context.Context, id int64) error {
 		return ErrNotFound
 	}
 	r.deletedID = id
+	r.deletedBy = deletedBy
 	return nil
 }
 
@@ -557,14 +559,14 @@ func TestServiceMovements(t *testing.T) {
 // Удаление (soft delete, ADMIN проверяется маршрутом).
 func TestServiceDelete(t *testing.T) {
 	repo := fixture()
-	if err := NewService(repo).Delete(context.Background(), 1); err != nil {
+	if err := NewService(repo).Delete(context.Background(), 1, adminActor); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if repo.deletedID != 1 {
-		t.Fatalf("deletedID = %d", repo.deletedID)
+	if repo.deletedID != 1 || repo.deletedBy != adminActor.UserID {
+		t.Fatalf("deletedID/deletedBy = %d/%d", repo.deletedID, repo.deletedBy)
 	}
 
-	requireAPIError(t, NewService(fixture()).Delete(context.Background(), 99),
+	requireAPIError(t, NewService(fixture()).Delete(context.Background(), 99, adminActor),
 		404, apierr.CodeNotFound)
 }
 

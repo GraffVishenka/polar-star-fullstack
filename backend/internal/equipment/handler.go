@@ -150,14 +150,20 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, NewDTO(item))
 }
 
-// Delete — DELETE /api/equipment/{id} (ADMIN): мягкое удаление в корзину.
+// Delete — DELETE /api/equipment/{id} (ADMIN): мягкое удаление в корзину с
+// фиксацией автора (TRASH-1).
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	if err := h.svc.Delete(r.Context(), id); err != nil {
+	actor, err := actorFrom(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.svc.Delete(r.Context(), id, actor); err != nil {
 		h.fail(w, r, err)
 		return
 	}

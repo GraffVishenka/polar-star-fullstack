@@ -22,7 +22,7 @@ type Repository interface {
 	ByID(ctx context.Context, id int64) (*Equipment, error)
 	Create(ctx context.Context, in CreateInput) (*Equipment, error)
 	Update(ctx context.Context, id int64, in UpdateInput) (*Equipment, error)
-	SoftDelete(ctx context.Context, id int64) error
+	SoftDelete(ctx context.Context, id int64, deletedBy int64) error
 	// RegistrationNumberTaken — проверка уникальности среди неудалённых (EQ-2).
 	RegistrationNumberTaken(ctx context.Context, registrationNumber string, excludeID int64) (bool, error)
 	EquipmentTypeExists(ctx context.Context, id int64) (bool, error)
@@ -209,11 +209,11 @@ func (r *MySQLRepository) Update(ctx context.Context, id int64, in UpdateInput) 
 
 // SoftDelete отправляет единицу в корзину (EQ-6: удаление — только ADMIN,
 // восстановление — через /api/admin/trash в Б10).
-func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64) error {
+func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64, deletedBy int64) error {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE equipment
-		SET deleted_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP()
-		WHERE id = ? AND deleted_at IS NULL`, id)
+		SET deleted_at = UTC_TIMESTAMP(), deleted_by = ?, updated_at = UTC_TIMESTAMP()
+		WHERE id = ? AND deleted_at IS NULL`, nullableID(deletedBy), id)
 	if err != nil {
 		return fmt.Errorf("equipment: удаление единицы: %w", err)
 	}
@@ -633,4 +633,12 @@ func nullableString(value *string) any {
 		return nil
 	}
 	return *value
+}
+
+// nullableID превращает 0 в SQL NULL: deleted_by — FK на users, 0 недопустим.
+func nullableID(value int64) any {
+	if value <= 0 {
+		return nil
+	}
+	return value
 }

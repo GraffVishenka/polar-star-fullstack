@@ -224,7 +224,7 @@ func TestMySQLKbTreeLifecycle(t *testing.T) {
 
 	// Мягкое удаление поддерева: root и двое его детей (A, B); grand после Move
 	// выше стал корневым и в поддерево root не входит → 2 потомка (KB-3).
-	descendants, err := repo.SoftDelete(ctx, root.ID, time.Now().UTC())
+	descendants, err := repo.SoftDelete(ctx, root.ID, time.Now().UTC(), 0)
 	if err != nil {
 		t.Fatalf("SoftDelete: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestMySQLKbTreeLifecycle(t *testing.T) {
 	if exists, deleted, _ := repo.ParentStatus(ctx, childA.ID); !exists || !deleted {
 		t.Fatalf("ParentStatus(childA после каскада) = exists=%v deleted=%v", exists, deleted)
 	}
-	if _, err := repo.SoftDelete(ctx, root.ID, time.Now().UTC()); err != ErrNotFound {
+	if _, err := repo.SoftDelete(ctx, root.ID, time.Now().UTC(), 0); err != ErrNotFound {
 		t.Fatalf("повторный SoftDelete = %v, want ErrNotFound", err)
 	}
 }

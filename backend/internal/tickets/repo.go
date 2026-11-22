@@ -84,7 +84,9 @@ type Repository interface {
 	Create(ctx context.Context, params CreateParams) (*Ticket, error)
 	Get(ctx context.Context, id int64) (*Ticket, error)
 	Update(ctx context.Context, id int64, params UpdateParams) (*Ticket, error)
-	SoftDelete(ctx context.Context, id int64) error
+	// SoftDelete отправляет заявку в корзину и фиксирует автора удаления
+	// (TICKET-12, TRASH-1).
+	SoftDelete(ctx context.Context, id int64, deletedBy int64) error
 	List(ctx context.Context, params ListParams) ([]*Ticket, int, error)
 	PublicList(ctx context.Context, buildingID *int64) ([]*Ticket, error)
 	PublicBuildings(ctx context.Context) ([]*BuildingCount, error)
@@ -191,11 +193,11 @@ func (r *MySQLRepository) Update(ctx context.Context, id int64, params UpdatePar
 }
 
 // SoftDelete перемещает заявку в корзину (TICKET-12).
-func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64) error {
+func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64, deletedBy int64) error {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE tickets
-		SET deleted_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP()
-		WHERE id = ? AND deleted_at IS NULL`, id)
+		SET deleted_at = UTC_TIMESTAMP(), deleted_by = ?, updated_at = UTC_TIMESTAMP()
+		WHERE id = ? AND deleted_at IS NULL`, deletedBy, id)
 	if err != nil {
 		return fmt.Errorf("tickets: удаление в корзину: %w", err)
 	}

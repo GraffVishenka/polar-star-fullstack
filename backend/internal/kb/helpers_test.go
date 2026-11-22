@@ -20,9 +20,10 @@ var baseTime = time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
 // тестируются без MySQL (в окружении разработки БД нет, docs/ENVIRONMENT.md).
 // Поведение (каскадное удаление, переиндексация, предки) зеркалит SQL-версию.
 type fakeRepo struct {
-	mu     sync.Mutex
-	nextID int64
-	nodes  map[int64]*Node
+	mu            sync.Mutex
+	nextID        int64
+	nodes         map[int64]*Node
+	lastDeletedBy int64
 }
 
 func newFakeRepo() *fakeRepo {
@@ -190,9 +191,10 @@ func (r *fakeRepo) Move(_ context.Context, nodeID int64, parentID *int64, before
 	return nil
 }
 
-func (r *fakeRepo) SoftDelete(_ context.Context, id int64, at time.Time) (int, error) {
+func (r *fakeRepo) SoftDelete(_ context.Context, id int64, at time.Time, deletedBy int64) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.lastDeletedBy = deletedBy
 	node := r.liveNodeLocked(id)
 	if node == nil {
 		return 0, ErrNotFound

@@ -108,13 +108,13 @@ func (s *Service) Update(ctx context.Context, id int64, in UpdateInput, actor Ac
 	return item, nil
 }
 
-// Delete отправляет единицу в корзину (soft delete, EQ-6). Права ADMIN
-// проверяет middleware маршрута.
-func (s *Service) Delete(ctx context.Context, id int64) error {
+// Delete отправляет единицу в корзину (soft delete, EQ-6) и фиксирует автора
+// удаления (TRASH-1). Права ADMIN проверяет middleware маршрута.
+func (s *Service) Delete(ctx context.Context, id int64, actor Actor) error {
 	if _, err := s.repo.ByID(ctx, id); err != nil {
 		return mapError(err)
 	}
-	return mapError(s.repo.SoftDelete(ctx, id))
+	return mapError(s.repo.SoftDelete(ctx, id, actor.UserID))
 }
 
 // Move перемещает единицу на другой склад в транзакции (EQ-3): обновление
