@@ -347,6 +347,53 @@ Push (NOTIF-1..NOTIF-5) работает только для USER/ADMIN и то�
 - `employees[]` (`EmployeeStats`) — аддитивное поле агрегата `/api/admin/stats`
   (для запроса с `user_id` отсутствует).
 
+## E2E (Playwright, Ф11)
+
+Сквозные сценарии — `frontend/e2e/`, конфиг `frontend/playwright.config.ts`.
+
+```bash
+cd frontend
+pnpm install
+pnpm e2e:install       # один раз: Chromium для Playwright
+pnpm e2e               # все сценарии (поднимает dev-сервер с MSW)
+pnpm e2e:ui            # интерактивный UI-режим
+```
+
+- **Без бэкенда**: `webServer` запускает `vite` с `VITE_ENABLE_MSW=true`, данные
+  живут в MSW (`src/mocks/db.ts`) и сбрасываются при перезагрузке страницы.
+  Реальный API для e2e не нужен.
+- **Проекты**: `chromium` (1440×900, все сценарии) и `mobile-375` (375×812,
+  только `e2e/mobile.spec.ts`). `trace` — на первом ретрае, скриншот/видео — при падении.
+- **Сценарии**: выбор здания/cookie/авторедирект; анонимная заявка со сменой
+  здания и ссылкой `/t/{token}` в чистом контексте; Word-скачивание; USER —
+  видимость своего здания, 404 на чужую заявку, «Назначить себя», комментарий с
+  файлом, смена статуса; ADMIN — дедлайн, смена здания со сбросом исполнителя,
+  корзина/восстановление; БЗ — подраздел, изображение между абзацами, DnD;
+  оборудование — перемещение/журнал, массовое перемещение, ведомость;
+  настройки/пользователи; статистика + Excel; axe-core (без critical);
+  адаптив 375px; консоль без ошибок (`pageerror` всегда валит тест).
+- **Отчёт**: `frontend/playwright-report/` (HTML), `frontend/test-results/`
+  (трейсы/скриншоты). Оба каталога в `.gitignore`.
+- **CI**: job `e2e` в `.github/workflows/ci.yml` — `playwright install --with-deps
+chromium`, `pnpm e2e`, отчёт артефактом при падении.
+- **Ограничение**: кнопка «Ведомость помещения» на `/equipment` пока заглушка
+  (`inventory-stub`, интеграция `InventoryExportButton` — fe-3/lead), поэтому
+  ведомость проверяется на эндпоинте `GET /api/warehouses/{id}/inventory.xlsx`
+  через fetch в контексте страницы (MSW) с проверкой `Content-Disposition`.
+- **MSW и контексты**: база моков живёт в памяти страницы, поэтому токен,
+  созданный в одном браузерном контексте, не виден в другом. Сценарий «ссылка
+  `/t/{token}` без cookie» очищает cookie и открывает ссылку SPA-переходом в том
+  же контексте; полноценная проверка «нового контекста» — в Ф11 на реальном API.
+- **Локальный запуск на Windows**: если Application Control блокирует
+  скачанный Chromium (`spawn UNKNOWN`), конфиг по умолчанию использует
+  установленный Edge (`channel: 'msedge'`). Переопределение: `E2E_CHANNEL=msedge`
+  или `E2E_CHANNEL=chromium`; в CI всегда Playwright Chromium. Видео отключено
+  (`video: 'off'`) — ffmpeg из Playwright тоже может блокироваться политикой.
+- **Размер бандла**: начальная загрузка (index + antd + react + query + css) —
+  ≈546 КБ gzip, лимит 600 КБ. Тяжёлые разделы (`KbPage` с TipTap, dnd-kit и др.)
+  вынесены в ленивые чанки (`React.lazy` в `appRoutes`/`publicRoutes`,
+  Suspense-фолбэк в layout'ах), поэтому общий вес всех чанков больше — это нормально.
+
 ## Docker
 
 ```bash
