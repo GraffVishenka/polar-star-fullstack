@@ -21,7 +21,10 @@ export function registerToastApi(api: ToastApi | null): void {
 const call =
   (level: keyof ToastApi) =>
   (title: string, description?: string): void => {
-    registered?.[level](title, description);
+    // Прокидываем ровно те аргументы, с которыми вызвали: так тесты и
+    // реализации видят одинаковый вызов (без лишнего undefined).
+    if (description === undefined) registered?.[level](title);
+    else registered?.[level](title, description);
   };
 
 export const toast: ToastApi = {

@@ -101,7 +101,6 @@ function TreeItem({
             onSelect?.(item);
           }
         }}
-        role="button"
         tabIndex={0}
         aria-current={isSelected ? 'page' : undefined}
       >

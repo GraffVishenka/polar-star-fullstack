@@ -1,8 +1,8 @@
 /**
  * Хелперы MSW-хендлеров: единый формат ответа и ошибок (§3.13).
  *
- * Возвращаемый тип намеренно `HttpResponse` без generic: тогда MSW выводит
- * единый `ResponseBody` для всех хендлеров и не требует приведения типов.
+ * Возвращаемый тип — `Response` (а не `HttpResponse<...>`): MSW принимает
+ * нативные Response, и тогда не нужно подгонять generic под каждый домен.
  */
 import { HttpResponse } from 'msw';
 import type { JsonBodyType } from 'msw';

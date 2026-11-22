@@ -298,10 +298,6 @@ a {
     display: none;
   }
 
-  .public-header__menu {
-    display: none;
-  }
-
   .public-content__inner,
   .app-content__inner,
   .admin-content__inner {

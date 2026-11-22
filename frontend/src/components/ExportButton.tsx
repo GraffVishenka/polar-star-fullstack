@@ -8,7 +8,7 @@
  *  - пустой/битый ответ не создаёт «пустой» файл;
  *  - 422 (слишком много позиций) объясняется человеческим текстом.
  */
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Button, Tooltip } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { apiDownload } from '@/api/client';
@@ -79,9 +79,12 @@ export function ExportButton({
   className,
 }: ExportButtonProps) {
   const [loading, setLoading] = useState(false);
+  // Ref защищает от двойного клика до перерисовки (Ф8: без дублей запросов).
+  const inFlight = useRef(false);
 
   const handleClick = useCallback(async () => {
-    if (loading) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setLoading(true);
     try {
       const result = await apiDownload(path, { skipAuth });
@@ -99,9 +102,10 @@ export function ExportButton({
       toast.error(exportErrorMessage(error));
       onError?.(error);
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
-  }, [filename, loading, onError, onSuccess, path, skipAuth]);
+  }, [filename, onError, onSuccess, path, skipAuth]);
 
   const button = (
     <Button

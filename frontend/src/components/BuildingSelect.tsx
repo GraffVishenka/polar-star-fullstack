@@ -7,7 +7,7 @@
  *    с подсказкой, чтобы не выглядел «просто нерабочим».
  */
 import { Select, Tooltip } from 'antd';
-import { BankOutlined, GlobalOutlined, LockOutlined } from '@ant-design/icons';
+import { LockOutlined } from '@ant-design/icons';
 
 export interface BuildingOption {
   id: number;
@@ -48,27 +48,10 @@ export function BuildingSelect({
   id,
 }: BuildingSelectProps) {
   const options = [
-    ...(allowAll
-      ? [
-          {
-            value: '__all__',
-            label: (
-              <span>
-                <GlobalOutlined style={{ marginInlineEnd: 6 }} />
-                Все здания
-              </span>
-            ),
-          },
-        ]
-      : []),
+    ...(allowAll ? [{ value: '__all__', label: 'Все здания (сводка)' }] : []),
     ...buildings.map((building) => ({
       value: String(building.id),
-      label: (
-        <span>
-          <BankOutlined style={{ marginInlineEnd: 6 }} />
-          {building.name}
-        </span>
-      ),
+      label: building.name,
     })),
   ];
 
