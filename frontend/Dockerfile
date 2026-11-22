@@ -2,10 +2,11 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
-RUN npm install --global pnpm@11
+# Точная версия pnpm и конфиг workspace (onlyBuiltDependencies/strictDepBuilds)
+# нужны до install: иначе сборка в Docker ведёт себя иначе, чем локально.
+RUN npm install --global pnpm@11.28.5
 
-# Слой зависимостей: меняется только при изменении lock-файла.
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .

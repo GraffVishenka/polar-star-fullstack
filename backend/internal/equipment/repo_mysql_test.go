@@ -184,11 +184,12 @@ func TestMySQLEquipmentMoveAndJournal(t *testing.T) {
 	}
 
 	// EQ-5: журнал отдаётся по убыванию moved_at с пагинацией.
+	// Перемещений ровно два: A→B и B→неактивный склад (создание в журнал не пишется).
 	items, total, err := repo.Movements(ctx, fx.equipmentID, 1, 1)
 	if err != nil {
 		t.Fatalf("Movements: %v", err)
 	}
-	if total != 3 || len(items) != 1 {
+	if total != 2 || len(items) != 1 {
 		t.Fatalf("total=%d len=%d", total, len(items))
 	}
 	if items[0].ToWarehouseID != fx.inactiveWh {
