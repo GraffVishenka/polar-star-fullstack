@@ -106,6 +106,19 @@ func TestLoadFrom_ProductionRequiresVAPID(t *testing.T) {
 	}
 }
 
+func TestDSN_Raw(t *testing.T) {
+	cfg := &config.Config{DatabaseURL: "polar:secret@tcp(db:3306)/polar_star?timeout=3s"}
+	dsn := cfg.DSN(true)
+	for _, want := range []string{"parseTime=true", "loc=UTC", "multiStatements=true", "timeout=3s"} {
+		if !strings.Contains(dsn, want) {
+			t.Fatalf("DSN %q не содержит %q", dsn, want)
+		}
+	}
+	if strings.Contains(cfg.DSN(false), "multiStatements=true") {
+		t.Fatalf("рабочий DSN не должен включать multiStatements: %q", cfg.DSN(false))
+	}
+}
+
 func TestValidateAddr(t *testing.T) {
 	cfg := &config.Config{HTTPAddr: ":8080"}
 	if err := cfg.ValidateAddr(); err != nil {

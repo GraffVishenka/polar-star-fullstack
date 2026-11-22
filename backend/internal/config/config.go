@@ -69,7 +69,28 @@ func (c *Config) DSN(multiStatements bool) string {
 	if strings.HasPrefix(raw, "mysql://") || strings.HasPrefix(raw, "mariadb://") {
 		return dsnFromURL(raw, multiStatements)
 	}
-	return raw
+	// Готовый DSN тоже дополняем обязательными параметрами, если их нет:
+	// без parseTime/loc время из DATETIME сканируется некорректно.
+	dsn := ensureDSNParam(raw, "parseTime", "true")
+	dsn = ensureDSNParam(dsn, "loc", "UTC")
+	dsn = ensureDSNParam(dsn, "charset", "utf8mb4")
+	if multiStatements {
+		dsn = ensureDSNParam(dsn, "multiStatements", "true")
+	}
+	return dsn
+}
+
+// ensureDSNParam добавляет параметр к DSN, если он ещё не задан.
+func ensureDSNParam(dsn, key, value string) string {
+	base, rawQuery, _ := strings.Cut(dsn, "?")
+	q, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return dsn
+	}
+	if q.Get(key) == "" {
+		q.Set(key, value)
+	}
+	return base + "?" + q.Encode()
 }
 
 // dsnFromURL преобразует mysql://-URL в DSN go-sql-driver. Поддерживаются две

@@ -71,6 +71,12 @@ func (s *Server) resolveOpenAPIPath() (string, error) {
 	configured := s.deps.Config.OpenAPIPath
 	candidates := []string{configured}
 	if !filepath.IsAbs(configured) {
+		// Запуск из backend/ (go run) или из корня репозитория (make up):
+		// пробуем подняться на уровень/два вверх по дереву.
+		candidates = append(candidates,
+			filepath.Join("..", configured),
+			filepath.Join("..", "..", configured),
+		)
 		if exe, err := os.Executable(); err == nil {
 			exeDir := filepath.Dir(exe)
 			candidates = append(candidates,

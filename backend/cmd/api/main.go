@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -151,7 +150,6 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		ReadHeaderTimeout: 10 * time.Second,
 		// ReadTimeout/WriteTimeout не задаются: выгрузка видео до 200 МБ (Б3).
 		IdleTimeout: 120 * time.Second,
-		BaseContext: func(_ net.Listener) context.Context { return ctx },
 	}
 
 	// Воркеры-заглушки (outbox, напоминания, автоочистка) отключаются вместе с

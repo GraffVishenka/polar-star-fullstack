@@ -74,7 +74,7 @@ func seedSettings(ctx context.Context, pool *sql.DB) error {
 		INSERT IGNORE INTO settings
 			(id, app_name, deadline_days, workdays, timezone, deadline_reminder_time,
 			 push_enabled, status_labels, status_colors)
-		VALUES (1, ?, ?, CAST(? AS JSON), ?, ?, 1, CAST(? AS JSON), CAST(? AS JSON))`,
+		VALUES (1, ?, ?, ?, ?, ?, 1, ?, ?)`,
 		defaultAppName, defaultDeadlineDays, defaultWorkdaysJSON, defaultTimezone,
 		defaultReminderTime, defaultStatusLabelsJSON, defaultStatusColorsJSON)
 	if err != nil {
