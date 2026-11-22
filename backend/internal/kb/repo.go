@@ -129,7 +129,12 @@ func (r *MySQLRepository) Update(ctx context.Context, params UpdateParams) (*Nod
 		return nil, fmt.Errorf("kb: изменение узла: %w", err)
 	}
 	if affected == 0 {
-		return nil, ErrNotFound
+		// MySQL считает RowsAffected по фактически изменённым строкам: повторный
+		// PATCH с теми же значениями в ту же секунду (updated_at DATETIME) даёт 0.
+		// Отличаем «узла нет/в корзине» от «нечего менять».
+		if _, getErr := r.Get(ctx, params.ID); getErr != nil {
+			return nil, ErrNotFound
+		}
 	}
 	return r.Get(ctx, params.ID)
 }
@@ -288,7 +293,10 @@ func (r *MySQLRepository) SetVisibility(ctx context.Context, id int64, hidden bo
 		return nil, fmt.Errorf("kb: смена видимости: %w", err)
 	}
 	if affected == 0 {
-		return nil, ErrNotFound
+		// См. Update: 0 затронутых строк может означать «значение не изменилось».
+		if _, getErr := r.Get(ctx, id); getErr != nil {
+			return nil, ErrNotFound
+		}
 	}
 	return r.Get(ctx, id)
 }
