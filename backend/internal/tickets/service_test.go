@@ -21,6 +21,7 @@ import (
 type fakeRepo struct {
 	tickets       map[int64]*Ticket
 	comments      map[int64]*Comment
+	attachments   map[int64][]*Attachment
 	buildings     map[int64]Building
 	problemTypes  map[int64]bool
 	problemNames  map[int64]string
@@ -34,6 +35,7 @@ func newFakeRepo(now time.Time) *fakeRepo {
 	return &fakeRepo{
 		tickets:      map[int64]*Ticket{},
 		comments:     map[int64]*Comment{},
+		attachments:  map[int64][]*Attachment{},
 		buildings:    map[int64]Building{1: {ID: 1, Name: "Здание A", IsActive: true}, 2: {ID: 2, Name: "Здание B", IsActive: true}, 3: {ID: 3, Name: "Здание C (неактивно)", IsActive: false}},
 		problemTypes: map[int64]bool{10: true, 11: false},
 		problemNames: map[int64]string{10: "Не работает оборудование", 11: "Старый вид"},
@@ -319,7 +321,18 @@ func (r *fakeRepo) ListComments(_ context.Context, ticketID int64, page, size in
 
 func (r *fakeRepo) DeleteComment(_ context.Context, id int64) error {
 	delete(r.comments, id)
+	delete(r.attachments, id)
 	return nil
+}
+
+func (r *fakeRepo) ListCommentAttachments(_ context.Context, commentIDs []int64) (map[int64][]*Attachment, error) {
+	result := make(map[int64][]*Attachment, len(commentIDs))
+	for _, id := range commentIDs {
+		if files, ok := r.attachments[id]; ok {
+			result[id] = files
+		}
+	}
+	return result, nil
 }
 
 func containsStatus(statuses []Status, status Status) bool {
@@ -943,4 +956,41 @@ func TestList_ExecutorNoneFilter(t *testing.T) {
 		ExecutorID: executor, ExecutorNone: true,
 	})
 	requireAPIError(t, err, 422, apierr.CodeValidation)
+}
+
+// TICKET-14: вложения комментария отдаются с корректными ссылками; публичная
+// ссылка содержит access_token заявки.
+func TestComments_AttachmentDTO(t *testing.T) {
+	f := newFixture(t, "2026-11-20 10:00")
+	ticket := f.repo.addTicket(&Ticket{BuildingID: 1, ApplicantName: "A", Cabinet: "1", ProblemTypeID: 10})
+	f.repo.nextCommentID++
+	comment := &Comment{
+		ID:         f.repo.nextCommentID,
+		TicketID:   ticket.ID,
+		AuthorName: "Иванов",
+		Body:       "см. фото",
+		CreatedAt:  f.repo.now,
+	}
+	f.repo.comments[comment.ID] = comment
+	f.repo.attachments[comment.ID] = []*Attachment{{
+		ID: 42, Filename: "photo.jpg", MimeType: "image/jpeg", Size: 1024,
+		Scope: "ticket", CreatedAt: f.repo.now,
+	}}
+
+	page, err := f.service.Comments(context.Background(), f.userActor(5), ticket.ID, 1, 20)
+	if err != nil {
+		t.Fatalf("Comments: %v", err)
+	}
+	dto := f.service.CommentDTO(page.Items[0])
+	if len(dto.Files) != 1 || dto.Files[0].URL != "/api/files/42" {
+		t.Fatalf("auth files: %+v", dto.Files)
+	}
+	if dto.Files[0].Filename != "photo.jpg" || dto.Files[0].Scope != "ticket" {
+		t.Fatalf("метаданные файла: %+v", dto.Files[0])
+	}
+
+	publicDTO := f.service.PublicCommentDTO(page.Items[0], "tok-123")
+	if len(publicDTO.Files) != 1 || !strings.Contains(publicDTO.Files[0].URL, "token=tok-123") {
+		t.Fatalf("public files: %+v", publicDTO.Files)
+	}
 }

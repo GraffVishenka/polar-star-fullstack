@@ -315,7 +315,7 @@ func (h *Handler) PublicCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusCreated, PublicTicketCreateResponseDTO{
-		Ticket:      h.service.PublicDetail(ticket, nil),
+		Ticket:      h.service.PublicDetail(ticket, nil, token),
 		AccessToken: token,
 		AccessURL:   "/t/" + token,
 	})
@@ -329,7 +329,7 @@ func (h *Handler) PublicGet(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, h.service.PublicDetail(ticket, comments))
+	h.writeJSON(w, http.StatusOK, h.service.PublicDetail(ticket, comments, token))
 }
 
 // PublicComments — GET /api/public/tickets/{token}/comments.
@@ -345,7 +345,7 @@ func (h *Handler) PublicComments(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, h.commentListDTO(result))
+	h.writeJSON(w, http.StatusOK, h.publicCommentListDTO(result, token))
 }
 
 // PublicAddComment — POST /api/public/tickets/{token}/comments (TICKET-14).
@@ -361,7 +361,7 @@ func (h *Handler) PublicAddComment(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusCreated, h.service.CommentDTO(comment))
+	h.writeJSON(w, http.StatusCreated, h.service.PublicCommentDTO(comment, token))
 }
 
 // --- Вспомогательные -------------------------------------------------------
@@ -385,6 +385,14 @@ func (h *Handler) commentListDTO(page *CommentPage) CommentListDTO {
 	items := make([]CommentDTO, 0, len(page.Items))
 	for _, comment := range page.Items {
 		items = append(items, h.service.CommentDTO(comment))
+	}
+	return CommentListDTO{Items: items, Total: page.Total, Page: page.Page, Size: page.Size}
+}
+
+func (h *Handler) publicCommentListDTO(page *CommentPage, token string) CommentListDTO {
+	items := make([]CommentDTO, 0, len(page.Items))
+	for _, comment := range page.Items {
+		items = append(items, h.service.PublicCommentDTO(comment, token))
 	}
 	return CommentListDTO{Items: items, Total: page.Total, Page: page.Page, Size: page.Size}
 }

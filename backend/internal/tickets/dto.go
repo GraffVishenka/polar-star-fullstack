@@ -1,6 +1,8 @@
 package tickets
 
 import (
+	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
@@ -253,11 +255,12 @@ func (s *Service) PublicCard(ticket *Ticket) PublicTicketCardDTO {
 	}
 }
 
-// PublicDetail собирает карточку по токену с комментариями.
-func (s *Service) PublicDetail(ticket *Ticket, comments []*Comment) PublicTicketDetailDTO {
+// PublicDetail собирает карточку по токену с комментариями. token нужен для
+// ссылок на вложения (публичная выдача требует access_token).
+func (s *Service) PublicDetail(ticket *Ticket, comments []*Comment, token string) PublicTicketDetailDTO {
 	commentDTOs := make([]CommentDTO, 0, len(comments))
 	for _, comment := range comments {
-		commentDTOs = append(commentDTOs, s.CommentDTO(comment))
+		commentDTOs = append(commentDTOs, s.PublicCommentDTO(comment, token))
 	}
 	return PublicTicketDetailDTO{
 		PublicTicketCardDTO: s.PublicCard(ticket),
@@ -268,8 +271,34 @@ func (s *Service) PublicDetail(ticket *Ticket, comments []*Comment) PublicTicket
 	}
 }
 
-// CommentDTO собирает комментарий. Вложения появятся после мержа Б3.
+// CommentDTO собирает комментарий для авторизованных (ссылки /api/files/{id}).
 func (s *Service) CommentDTO(comment *Comment) CommentDTO {
+	return s.commentDTO(comment, "")
+}
+
+// PublicCommentDTO собирает комментарий для анонимной карточки: ссылки на
+// вложения содержат access_token заявки.
+func (s *Service) PublicCommentDTO(comment *Comment, token string) CommentDTO {
+	return s.commentDTO(comment, token)
+}
+
+func (s *Service) commentDTO(comment *Comment, token string) CommentDTO {
+	files := make([]CommentFileDTO, 0, len(comment.Files))
+	for _, attachment := range comment.Files {
+		fileURL := fmt.Sprintf("/api/files/%d", attachment.ID)
+		if token != "" {
+			fileURL = fmt.Sprintf("/api/public/files/%d?token=%s", attachment.ID, url.QueryEscape(token))
+		}
+		files = append(files, CommentFileDTO{
+			ID:        attachment.ID,
+			Filename:  attachment.Filename,
+			MimeType:  attachment.MimeType,
+			Size:      attachment.Size,
+			Scope:     attachment.Scope,
+			URL:       fileURL,
+			CreatedAt: attachment.CreatedAt,
+		})
+	}
 	return CommentDTO{
 		ID:           comment.ID,
 		TicketID:     comment.TicketID,
@@ -277,6 +306,6 @@ func (s *Service) CommentDTO(comment *Comment) CommentDTO {
 		AuthorName:   comment.AuthorName,
 		Text:         comment.Body,
 		CreatedAt:    comment.CreatedAt,
-		Files:        []CommentFileDTO{},
+		Files:        files,
 	}
 }

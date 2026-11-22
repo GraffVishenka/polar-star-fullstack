@@ -95,6 +95,9 @@ type Repository interface {
 	GetComment(ctx context.Context, id int64) (*Comment, error)
 	ListComments(ctx context.Context, ticketID int64, page, size int) ([]*Comment, int, error)
 	DeleteComment(ctx context.Context, id int64) error
+	// ListCommentAttachments возвращает вложения для набора комментариев
+	// (comment_files + files из Б3); ключ — id комментария.
+	ListCommentAttachments(ctx context.Context, commentIDs []int64) (map[int64][]*Attachment, error)
 }
 
 // MySQLRepository — реализация Repository на database/sql.
@@ -489,6 +492,49 @@ func (r *MySQLRepository) DeleteComment(ctx context.Context, id int64) error {
 		return fmt.Errorf("tickets: откат комментария: %w", err)
 	}
 	return nil
+}
+
+// ListCommentAttachments возвращает вложения комментариев (TICKET-14).
+// Один запрос на страницу комментариев; файлы области kb к комментариям не
+// привязываются, но фильтр scope не вредит.
+func (r *MySQLRepository) ListCommentAttachments(ctx context.Context, commentIDs []int64) (map[int64][]*Attachment, error) {
+	result := make(map[int64][]*Attachment, len(commentIDs))
+	if len(commentIDs) == 0 {
+		return result, nil
+	}
+	placeholders := make([]string, len(commentIDs))
+	args := make([]any, len(commentIDs))
+	for i, id := range commentIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := `
+		SELECT cf.comment_id, f.id, f.original_name, f.mime, f.size_bytes, f.scope, f.created_at
+		FROM comment_files cf
+		JOIN files f ON f.id = cf.file_id
+		WHERE cf.comment_id IN (` + strings.Join(placeholders, ", ") + `)
+		ORDER BY cf.comment_id, f.id`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("tickets: вложения комментариев: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var (
+			commentID  int64
+			attachment Attachment
+		)
+		if err := rows.Scan(&commentID, &attachment.ID, &attachment.Filename, &attachment.MimeType,
+			&attachment.Size, &attachment.Scope, &attachment.CreatedAt); err != nil {
+			return nil, fmt.Errorf("tickets: чтение вложения: %w", err)
+		}
+		result[commentID] = append(result[commentID], &attachment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("tickets: вложения комментариев: %w", err)
+	}
+	return result, nil
 }
 
 type rowScanner interface {

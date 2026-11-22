@@ -459,6 +459,9 @@ func (s *Service) Comments(ctx context.Context, actor *auth.User, ticketID int64
 	if err != nil {
 		return nil, apierr.Internal(err)
 	}
+	if err := s.loadAttachments(ctx, items); err != nil {
+		return nil, err
+	}
 	return &CommentPage{Items: items, Total: total, Page: page, Size: size}, nil
 }
 
@@ -483,6 +486,7 @@ func (s *Service) AddComment(ctx context.Context, actor *auth.User, ticketID int
 	if err := s.attachFiles(ctx, fileIDs, comment.ID); err != nil {
 		return nil, err
 	}
+	s.reloadCommentAttachments(ctx, comment)
 	s.notifyComment(ctx, ticket, actor.ID)
 	return comment, nil
 }
@@ -533,6 +537,9 @@ func (s *Service) PublicTicket(ctx context.Context, token string) (*Ticket, []*C
 	if err != nil {
 		return nil, nil, apierr.Internal(err)
 	}
+	if err := s.loadAttachments(ctx, comments); err != nil {
+		return nil, nil, err
+	}
 	return ticket, comments, nil
 }
 
@@ -549,6 +556,9 @@ func (s *Service) PublicComments(ctx context.Context, token string, page, size i
 	items, total, err := s.repo.ListComments(ctx, ticket.ID, page, size)
 	if err != nil {
 		return nil, apierr.Internal(err)
+	}
+	if err := s.loadAttachments(ctx, items); err != nil {
+		return nil, err
 	}
 	return &CommentPage{Items: items, Total: total, Page: page, Size: size}, nil
 }
@@ -573,6 +583,7 @@ func (s *Service) AddPublicComment(ctx context.Context, token, text string, file
 	if err := s.attachFiles(ctx, fileIDs, comment.ID); err != nil {
 		return nil, err
 	}
+	s.reloadCommentAttachments(ctx, comment)
 	s.notifyComment(ctx, ticket, 0)
 	return comment, nil
 }
@@ -756,6 +767,40 @@ func (s *Service) attachFiles(ctx context.Context, fileIDs []int64, commentID in
 		return err
 	}
 	return nil
+}
+
+// loadAttachments подгружает вложения для страницы комментариев одним запросом.
+func (s *Service) loadAttachments(ctx context.Context, comments []*Comment) error {
+	if len(comments) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(comments))
+	for _, comment := range comments {
+		ids = append(ids, comment.ID)
+	}
+	byComment, err := s.repo.ListCommentAttachments(ctx, ids)
+	if err != nil {
+		return apierr.Internal(err)
+	}
+	for _, comment := range comments {
+		comment.Files = byComment[comment.ID]
+	}
+	return nil
+}
+
+// reloadCommentAttachments подгружает вложения одного комментария best-effort:
+// комментарий уже создан, ошибка чтения не должна ломать ответ.
+func (s *Service) reloadCommentAttachments(ctx context.Context, comment *Comment) {
+	if comment == nil {
+		return
+	}
+	byComment, err := s.repo.ListCommentAttachments(ctx, []int64{comment.ID})
+	if err != nil {
+		s.logger.Warn("tickets: не удалось прочитать вложения комментария",
+			"error", err, "comment_id", comment.ID)
+		return
+	}
+	comment.Files = byComment[comment.ID]
 }
 
 func (s *Service) calculateDeadline() *time.Time {

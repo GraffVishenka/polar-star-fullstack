@@ -83,6 +83,18 @@ type Comment struct {
 	Body         string
 	CreatedAt    time.Time
 	DeletedAt    *time.Time
+	// Files — вложения комментария (comment_files + files, Б3).
+	Files []*Attachment
+}
+
+// Attachment — метаданные вложения комментария (таблица files, Б3).
+type Attachment struct {
+	ID        int64
+	Filename  string
+	MimeType  string
+	Size      int64
+	Scope     string
+	CreatedAt time.Time
 }
 
 // BuildingCount — активное здание со счётчиками публичного экрана (TICKET-6).
