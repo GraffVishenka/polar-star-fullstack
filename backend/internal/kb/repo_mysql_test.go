@@ -189,16 +189,17 @@ func TestMySQLKbTreeLifecycle(t *testing.T) {
 	}
 
 	// Видимость и публичность узла (KB-7): скрытый корень закрывает потомков.
+	// Проверяем childA: grand после Move выше стал корневым и от root не зависит.
 	if _, err := repo.SetVisibility(ctx, root.ID, true, 0); err != nil {
 		t.Fatalf("SetVisibility(true): %v", err)
 	}
-	if visible, err := repo.NodePublic(ctx, grand.ID); err != nil || visible {
+	if visible, err := repo.NodePublic(ctx, childA.ID); err != nil || visible {
 		t.Fatalf("NodePublic при скрытом корне = %v, %v", visible, err)
 	}
 	if _, err := repo.SetVisibility(ctx, root.ID, false, 0); err != nil {
 		t.Fatalf("SetVisibility(false): %v", err)
 	}
-	if visible, err := repo.NodePublic(ctx, grand.ID); err != nil || !visible {
+	if visible, err := repo.NodePublic(ctx, childA.ID); err != nil || !visible {
 		t.Fatalf("NodePublic при видимом корне = %v, %v", visible, err)
 	}
 
@@ -221,13 +222,14 @@ func TestMySQLKbTreeLifecycle(t *testing.T) {
 		t.Fatalf("MediaCandidates не нашёл ссылку: %+v", candidates)
 	}
 
-	// Мягкое удаление поддерева: root, A, B, внук в корне → 3 потомка (KB-3).
+	// Мягкое удаление поддерева: root и двое его детей (A, B); grand после Move
+	// выше стал корневым и в поддерево root не входит → 2 потомка (KB-3).
 	descendants, err := repo.SoftDelete(ctx, root.ID, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("SoftDelete: %v", err)
 	}
-	if descendants != 3 {
-		t.Fatalf("descendants = %d, want 3", descendants)
+	if descendants != 2 {
+		t.Fatalf("descendants = %d, want 2", descendants)
 	}
 	if _, err := repo.Get(ctx, root.ID); err != ErrNotFound {
 		t.Fatalf("Get(удалённый) = %v, want ErrNotFound", err)
