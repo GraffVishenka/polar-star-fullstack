@@ -247,30 +247,52 @@ func (r *MySQLRepository) SoftDelete(ctx context.Context, id int64, at time.Time
 		return 0, fmt.Errorf("kb: блокировка удаляемого узла: %w", err)
 	}
 
-	// Один и тот же recursive CTE: сначала считаем размер поддерева, затем
-	// помечаем его целиком.
+	// Один и тот же recursive CTE: сначала собираем id поддерева, затем помечаем
+	// их целиком. Список читается отдельным запросом (а не подзапросом UPDATE),
+	// чтобы не зависеть от поддержки CTE в UPDATE и держать SQL простым.
 	const subtree = `WITH RECURSIVE sub AS (
 		SELECT id FROM kb_nodes WHERE id = ? AND deleted_at IS NULL
 		UNION ALL
 		SELECT child.id FROM kb_nodes child JOIN sub ON child.parent_id = sub.id
 		WHERE child.deleted_at IS NULL
-	)`
-	var total int
-	if err := tx.QueryRowContext(ctx, subtree+` SELECT COUNT(*) FROM sub`, id).Scan(&total); err != nil {
-		return 0, fmt.Errorf("kb: подсчёт поддерева: %w", err)
+	) SELECT id FROM sub`
+	rows, err := tx.QueryContext(ctx, subtree, id)
+	if err != nil {
+		return 0, fmt.Errorf("kb: выборка поддерева: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, subtree+`
-		UPDATE kb_nodes SET deleted_at = ?, updated_at = UTC_TIMESTAMP()
-		WHERE id IN (SELECT id FROM sub)`, id, at); err != nil {
+	subtreeIDs := make([]int64, 0, 16)
+	for rows.Next() {
+		var memberID int64
+		if err := rows.Scan(&memberID); err != nil {
+			_ = rows.Close()
+			return 0, fmt.Errorf("kb: чтение поддерева: %w", err)
+		}
+		subtreeIDs = append(subtreeIDs, memberID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, fmt.Errorf("kb: чтение поддерева: %w", err)
+	}
+	_ = rows.Close()
+	if len(subtreeIDs) == 0 {
+		// Узел был заблокирован выше, поэтому сюда попадать не должны.
+		return 0, ErrNotFound
+	}
+
+	args := make([]any, 0, len(subtreeIDs)+1)
+	args = append(args, at)
+	for _, memberID := range subtreeIDs {
+		args = append(args, memberID)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE kb_nodes
+		SET deleted_at = ?, updated_at = UTC_TIMESTAMP()
+		WHERE id IN (`+placeholders(len(subtreeIDs))+`)`, args...); err != nil {
 		return 0, fmt.Errorf("kb: удаление поддерева: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("kb: фиксация удаления: %w", err)
 	}
-	if total > 0 {
-		total--
-	}
-	return total, nil
+	return len(subtreeIDs) - 1, nil
 }
 
 // SetVisibility переключает видимость корневого раздела (KB-7).
@@ -522,6 +544,14 @@ func scanNode(src scanner) (*Node, error) {
 		node.DeletedAt = &deletedAt.Time
 	}
 	return &node, nil
+}
+
+// placeholders возвращает «?, ?, ?» для IN (...).
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
 
 // nullableID превращает 0 в SQL NULL (автор неизвестен).
