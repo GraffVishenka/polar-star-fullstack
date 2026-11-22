@@ -21,6 +21,7 @@ import (
 	"github.com/graffvishenka/polar-star-service/backend/internal/auth"
 	"github.com/graffvishenka/polar-star-service/backend/internal/config"
 	"github.com/graffvishenka/polar-star-service/backend/internal/db"
+	"github.com/graffvishenka/polar-star-service/backend/internal/files"
 	"github.com/graffvishenka/polar-star-service/backend/internal/httpserver"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 	"github.com/graffvishenka/polar-star-service/backend/internal/users"
@@ -139,6 +140,17 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 	usersService := users.NewService(usersRepository, repository, users.NewMySQLTicketResolver(pool), logger)
 	usersHandler := users.NewHandler(usersService, logger)
 
+	// Б3: файлы и медиа — локальный диск (UPLOAD_DIR), метаданные в MySQL,
+	// определение MIME по сигнатуре и лимиты 10 МБ/200 МБ.
+	filesRepo := files.NewMySQLRepository(pool)
+	filesStore := files.NewStorage(cfg.UploadDir, cfg.Location, clock)
+	filesService := files.NewService(filesRepo, filesStore, files.Options{
+		Clock:          clock,
+		Logger:         logger,
+		MaxUploadBytes: cfg.MaxUploadBytes,
+	})
+	filesHandler := files.NewHandler(filesService, logger)
+
 	httpServer := httpserver.New(httpserver.Deps{
 		Config:        cfg,
 		Logger:        logger,
@@ -150,6 +162,7 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		AuthHandler:   authHandler,
 		Authenticator: authenticator,
 		UsersHandler:  usersHandler,
+		FilesHandler:  filesHandler,
 	})
 
 	server := &http.Server{
@@ -168,6 +181,10 @@ func runServer(ctx context.Context, cfg *config.Config, logger *slog.Logger) err
 		stopWorkers()
 		workers.Wait()
 	}()
+
+	// Б3: раз в час удаляются файлы без привязки (linked_at IS NULL) старше
+	// 24 часов; ошибки очистки только логируются и не влияют на API.
+	go files.NewCleaner(filesRepo, filesStore, logger, clock, files.CleanerOptions{}).Run(workerCtx)
 
 	serveErr := make(chan error, 1)
 	go func() {

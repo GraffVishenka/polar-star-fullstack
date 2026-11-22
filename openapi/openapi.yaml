@@ -264,6 +264,46 @@ paths:
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
         '501': {$ref: '#/components/responses/NotImplemented'}
+  /api/public/files:
+    post:
+      tags: [Public]
+      operationId: uploadPublicFile
+      summary: Загрузка вложения анонимным комментарием
+      description: |
+        TICKET-14 / PUB-6 / Б3 (аддитивное расширение контракта): аноним может
+        приложить файл к комментарию своей заявки. Доступ проверяется по бессрочному
+        `access_token` заявки; `scope` всегда `ticket`, автор загрузки анонимный
+        (`uploader_id = null`, `is_anonymous = true`). Файл привязывается к комментарию
+        при его создании (`POST /api/public/tickets/{token}/comments`). Те же лимиты,
+        что у авторизованной загрузки: фото ≤ 10 МБ, видео ≤ 200 МБ, MIME по сигнатуре
+        (`415` — недопустимый формат, `413` — превышен размер). Rate limit — как у
+        публичного создания заявки: 5 запросов / 10 минут на IP (AUTH-3).
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: Токен анонимной заявки.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedFile'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/public/files/{id}:
     get:
       tags: [Public]
