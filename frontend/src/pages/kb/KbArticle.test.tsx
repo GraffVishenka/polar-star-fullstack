@@ -72,9 +72,7 @@ describe('KbArticle', () => {
     expect(container.querySelector('script')).toBeNull();
     expect((window as unknown as { __kbXss?: boolean }).__kbXss).toBeUndefined();
     expect(container.querySelector('img')?.getAttribute('onerror')).toBeNull();
-    expect(
-      screen.getByText(/Обновлено .* · Администратор Системы/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Обновлено .* · Администратор Системы/)).toBeInTheDocument();
   });
 
   it('показывает ADMIN удаление и тумблер видимости корневого раздела', async () => {

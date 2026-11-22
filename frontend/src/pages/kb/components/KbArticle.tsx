@@ -50,12 +50,7 @@ export function KbArticle({
   const breadcrumbs = [
     { title: <Link to="/kb">База знаний</Link> },
     ...path.map((entry) => ({
-      title:
-        entry.id === node.id ? (
-          node.title
-        ) : (
-          <Link to={`/kb/${entry.id}`}>{entry.title}</Link>
-        ),
+      title: entry.id === node.id ? node.title : <Link to={`/kb/${entry.id}`}>{entry.title}</Link>,
     })),
   ];
 
@@ -121,9 +116,12 @@ export function KbArticle({
             </Tooltip>
           </Flex>
         ) : (
-          <Typography.Text type="secondary" style={{ fontSize: 12 }} data-testid="kb-visibility-inherited">
-            Видимость наследуется от корневого раздела «
-            {path[0]?.title ?? '—'}»
+          <Typography.Text
+            type="secondary"
+            style={{ fontSize: 12 }}
+            data-testid="kb-visibility-inherited"
+          >
+            Видимость наследуется от корневого раздела «{path[0]?.title ?? '—'}»
           </Typography.Text>
         )
       ) : null}

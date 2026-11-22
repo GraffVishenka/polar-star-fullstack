@@ -252,7 +252,13 @@ export function KbEditor({
         />
       </Flex>
 
-      <Flex align="center" gap={8} wrap className="kb-editor__toolbar" data-testid="kb-editor-toolbar">
+      <Flex
+        align="center"
+        gap={8}
+        wrap
+        className="kb-editor__toolbar"
+        data-testid="kb-editor-toolbar"
+      >
         <ToolButton
           label="Жирный"
           icon={<BoldOutlined />}

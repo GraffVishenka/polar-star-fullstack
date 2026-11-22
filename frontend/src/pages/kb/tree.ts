@@ -23,7 +23,12 @@ export interface FlatKbNode {
 /** Обход дерева «в глубину» слева направо. */
 export function flattenKbTree(nodes: KbTreeNode[]): FlatKbNode[] {
   const result: FlatKbNode[] = [];
-  const walk = (current: KbTreeNode[], parentId: number | null, depth: number, path: KbTreeNode[]) => {
+  const walk = (
+    current: KbTreeNode[],
+    parentId: number | null,
+    depth: number,
+    path: KbTreeNode[],
+  ) => {
     for (const node of current) {
       const nodePath = [...path, node];
       result.push({ node, parentId, depth, path: nodePath });
@@ -197,17 +202,14 @@ export function resolveKbDropTarget(
 }
 
 /** Перемещение не изменит порядок (бросили на себя или сразу за собой). */
-export function isKbMoveNoop(
-  nodes: KbTreeNode[],
-  nodeId: number,
-  target: KbDropTarget,
-): boolean {
+export function isKbMoveNoop(nodes: KbTreeNode[], nodeId: number, target: KbDropTarget): boolean {
   const node = findKbNode(nodes, nodeId);
   if (!node) return true;
   if (target.parentId === nodeId) return true;
   if (target.parentId !== node.parent_id) return false;
   if (target.beforeNodeId === nodeId) return true;
-  const siblings = (target.parentId === null ? nodes : (findKbNode(nodes, target.parentId)?.children ?? []));
+  const siblings =
+    target.parentId === null ? nodes : (findKbNode(nodes, target.parentId)?.children ?? []);
   const currentIndex = siblings.findIndex((item) => item.id === nodeId);
   const nextId = currentIndex >= 0 ? (siblings[currentIndex + 1]?.id ?? null) : null;
   return target.beforeNodeId === nextId;

@@ -1,11 +1,6 @@
 /** Тесты санитизации HTML статьи БЗ (KB-4, KB-5). */
 import { describe, expect, it } from 'vitest';
-import {
-  extractKbMediaIds,
-  kbImageHtml,
-  kbVideoHtml,
-  sanitizeKbHtml,
-} from './sanitize';
+import { extractKbMediaIds, kbImageHtml, kbVideoHtml, sanitizeKbHtml } from './sanitize';
 
 describe('sanitizeKbHtml', () => {
   it('вырезает <script> и обработчики on*, оставляя разметку статьи', () => {

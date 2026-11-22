@@ -203,9 +203,7 @@ describe('KbPage', () => {
     );
 
     await user.click(screen.getByTestId('kb-delete'));
-    await waitFor(() =>
-      expect(screen.getByText('Удалить раздел?')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText('Удалить раздел?')).toBeInTheDocument());
     await user.click(screen.getByTestId('confirm-dialog-ok'));
 
     await waitFor(() =>

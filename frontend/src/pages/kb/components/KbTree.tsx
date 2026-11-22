@@ -39,12 +39,7 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import type { KbTreeNode } from '@/api/types';
-import {
-  findKbPath,
-  isKbMoveNoop,
-  resolveKbDropTarget,
-  type KbDropTarget,
-} from '../tree';
+import { findKbPath, isKbMoveNoop, resolveKbDropTarget, type KbDropTarget } from '../tree';
 
 export interface KbMoveRequestTarget extends KbDropTarget {
   nodeId: number;
@@ -99,8 +94,15 @@ function KbTreeRow({
   onAddChild,
   children,
 }: RowProps) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id: node.id, data: { parentId: node.parent_id }, disabled: !canDrag });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: node.id, data: { parentId: node.parent_id }, disabled: !canDrag });
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `child:${node.id}`,
     data: { parentId: node.id },

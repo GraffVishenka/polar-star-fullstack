@@ -88,12 +88,7 @@ describe('KbTree', () => {
     const onAddChild = vi.fn();
     const user = userEvent.setup();
     renderWithProviders(
-      <KbTree
-        nodes={makeTree()}
-        selectedId={null}
-        onSelect={onSelect}
-        onAddChild={onAddChild}
-      />,
+      <KbTree nodes={makeTree()} selectedId={null} onSelect={onSelect} onAddChild={onAddChild} />,
     );
 
     await user.click(screen.getByTestId('kb-node-row-2'));

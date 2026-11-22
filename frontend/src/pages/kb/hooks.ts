@@ -134,8 +134,7 @@ export function useKbCreate() {
 export function useKbUpdate() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: KbNodeUpdateRequest }) =>
-      updateKbNode(id, body),
+    mutationFn: ({ id, body }: { id: number; body: KbNodeUpdateRequest }) => updateKbNode(id, body),
     onSuccess: (node) => {
       queryClient.setQueryData(queryKeys.kbNode(node.id), node);
       void queryClient.invalidateQueries({ queryKey: queryKeys.kbTree });

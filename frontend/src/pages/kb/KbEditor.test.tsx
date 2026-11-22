@@ -179,8 +179,6 @@ describe('KbEditor', () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByTestId('kb-editor-server-error')).toHaveTextContent(
-      'Нельзя вложить раздел',
-    );
+    expect(screen.getByTestId('kb-editor-server-error')).toHaveTextContent('Нельзя вложить раздел');
   });
 });
