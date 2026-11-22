@@ -11,8 +11,10 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Packages)
 . (Join-Path $PSScriptRoot 'dev-env.ps1')
 
 $root = Split-Path -Parent $PSScriptRoot
-$wrapper = Join-Path $root '.tools\wasm_exec.bat'
-$wasmDir = Join-Path $root '.tools\go\lib\wasm'
+# В git worktree собственного .tools нет — берём общий тулчейн основной копии.
+$toolsRoot = if (Test-Path (Join-Path $root '.tools\go\lib\wasm')) { Join-Path $root '.tools' } else { 'C:\tech_spec\polar-star-service\.tools' }
+$wrapper = Join-Path $toolsRoot 'wasm_exec.bat'
+$wasmDir = Join-Path $toolsRoot 'go\lib\wasm'
 
 if (-not (Test-Path $wrapper)) {
     @"
