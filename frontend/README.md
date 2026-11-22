@@ -155,6 +155,25 @@ MSW-хендлеры заявок — `src/mocks/handlers/tickets.ts` (влад�
 компоненты в `src/pages/public/components/`, cookie-хук — `src/hooks/useAnonBuilding.ts`,
 копирование ссылки — `src/app/clipboard.ts`. MSW — `src/mocks/handlers/public.ts`.
 
+## Документы и экспорт (Ф8)
+
+Единый механизм скачивания Word/Excel: `GET` → blob → файл с именем из
+`Content-Disposition`, `attachment`, `Cache-Control` не кэшируем. Внутри —
+`apiDownload` (Bearer/`skipAuth`, single-flight refresh, таймаут), `saveBlob`,
+тосты с `request_id` для 5xx и русские тексты 403/404/422/таймаута. Ошибка или
+пустой ответ не создают файл, повторное нажатие во время загрузки игнорируется.
+
+| Модуль                                        | Для кого | Что делает                                                                                               |
+| --------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `ExportButton` (`@/components`)               | все      | Универсальная кнопка, Word-заявки (`ticket_{id}.docx`)                                                   |
+| `useFileDownload` (`@/components/exports`)    | все      | Базовый хук: `download/loading/error/filename/canDownload`                                               |
+| `useInventoryExport`, `InventoryExportButton` | **fe-3** | Ведомость помещения `GET /warehouses/{id}/inventory.xlsx`, 422 при >1000 позиций                         |
+| `useStatsExport`, `StatsExportButton`         | **fe-2** | Excel-статистика `GET /stats/export.xlsx`: `user_id`, `building_id`, `from`, `to`; 403 для чужого отчёта |
+
+Примеры подключения и контракт ошибок — `frontend/src/components/exports/README.md`.
+Word-выгрузка уже стоит в `TicketDrawer` (`/tickets`) и на публичной `/t/{token}`
+(`skipAuth`), имя файла приходит из `Content-Disposition` с fallback `ticket_{id}.docx`.
+
 ## MSW: что покрыто
 
 Все эндпоинты §3.13. Хендлеры разбиты по доменам — правит только владелец домена:
