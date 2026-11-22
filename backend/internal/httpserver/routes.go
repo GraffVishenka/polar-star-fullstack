@@ -67,6 +67,14 @@ func (s *Server) routes() http.Handler {
 		api.Get("/public/kb/tree", s.notImplemented)
 		api.Get("/public/kb/nodes/{id}", s.notImplemented)
 
+		// База знаний (Б6, KB-7/KB-8): дерево и статья для анонима. Медиа
+		// публичной статьи отдаётся тем же `GET /api/public/files/{id}` без
+		// токена (проверка KBMediaAuthorizer в files, реализация — kb).
+		if s.deps.KBHandler != nil {
+			api.Get("/public/kb/tree", s.deps.KBHandler.PublicTree)
+			api.Get("/public/kb/nodes/{id}", s.deps.KBHandler.PublicGet)
+		}
+
 		// ЗАЩИЩЁННЫЕ МАРШРУТЫ (USER/ADMIN). requireAuth проверяет is_active в БД
 		// на каждом запросе (AUTH-6), затем must_change_password (AUTH-4).
 		api.Group(func(pr chi.Router) {
@@ -119,12 +127,21 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 		r.Get("/files/{id}", s.notImplemented)
 	}
 
-	// База знаний (Б6).
-	r.Get("/kb/tree", s.notImplemented)
-	r.Get("/kb/nodes/{id}", s.notImplemented)
-	r.Post("/kb/nodes", s.notImplemented)
-	r.Patch("/kb/nodes/{id}", s.notImplemented)
-	r.Post("/kb/nodes/{id}/move", s.notImplemented)
+	// База знаний (Б6): дерево, узлы, правка и перемещение — USER/ADMIN (KB-3).
+	// Удаление и видимость — только ADMIN (см. adminRoutes).
+	if kbHandler := s.deps.KBHandler; kbHandler != nil {
+		r.Get("/kb/tree", kbHandler.Tree)
+		r.Get("/kb/nodes/{id}", kbHandler.Get)
+		r.Post("/kb/nodes", kbHandler.Create)
+		r.Patch("/kb/nodes/{id}", kbHandler.Update)
+		r.Post("/kb/nodes/{id}/move", kbHandler.Move)
+	} else {
+		r.Get("/kb/tree", s.notImplemented)
+		r.Get("/kb/nodes/{id}", s.notImplemented)
+		r.Post("/kb/nodes", s.notImplemented)
+		r.Patch("/kb/nodes/{id}", s.notImplemented)
+		r.Post("/kb/nodes/{id}/move", s.notImplemented)
+	}
 
 	// Пользователи и статистика (Б2, Б9).
 	r.Get("/users/assignable", s.usersAssignable)
@@ -173,9 +190,14 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 func (s *Server) adminRoutes(r chi.Router) { // Заявки: удаление в корзину — только ADMIN (TICKET-12).
 	r.Delete("/tickets/{id}", s.notImplemented)
 
-	// БЗ: удаление и тумблер видимости — только ADMIN (KB-3, KB-7).
-	r.Delete("/kb/nodes/{id}", s.notImplemented)
-	r.Patch("/kb/nodes/{id}/visibility", s.notImplemented)
+	// БЗ: удаление и тумблер видимости — только ADMIN (KB-3, KB-7, Б6).
+	if kbHandler := s.deps.KBHandler; kbHandler != nil {
+		r.Delete("/kb/nodes/{id}", kbHandler.Delete)
+		r.Patch("/kb/nodes/{id}/visibility", kbHandler.SetVisibility)
+	} else {
+		r.Delete("/kb/nodes/{id}", s.notImplemented)
+		r.Patch("/kb/nodes/{id}/visibility", s.notImplemented)
+	}
 
 	// Пользователи (AUTH-4..AUTH-9, Б2).
 	r.Get("/admin/users", s.usersList)

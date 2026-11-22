@@ -61,6 +61,22 @@ type EquipmentAPI interface {
 	Movements(w http.ResponseWriter, r *http.Request)
 }
 
+// KBAPI — база знаний (Б6, KB-1..KB-8): дерево, узлы, перемещение, видимость.
+// Интерфейс объявлен здесь, чтобы httpserver не зависел от internal/kb и
+// тестировался без БД. Публичная выдача медиа статьи идёт через
+// `GET /api/public/files/{id}` (files.KBMediaAuthorizer, реализация — kb).
+type KBAPI interface {
+	Tree(w http.ResponseWriter, r *http.Request)
+	PublicTree(w http.ResponseWriter, r *http.Request)
+	Get(w http.ResponseWriter, r *http.Request)
+	PublicGet(w http.ResponseWriter, r *http.Request)
+	Create(w http.ResponseWriter, r *http.Request)
+	Update(w http.ResponseWriter, r *http.Request)
+	Move(w http.ResponseWriter, r *http.Request)
+	Delete(w http.ResponseWriter, r *http.Request)
+	SetVisibility(w http.ResponseWriter, r *http.Request)
+}
+
 // Deps — зависимости HTTP-слоя. Передаются из main, чтобы сервер не создавал
 // подключения сам и оставался тестируемым.
 type Deps struct {
@@ -82,6 +98,9 @@ type Deps struct {
 	// соответствующие маршруты остаются заглушками 501.
 	BuildingsHandler BuildingsAPI
 	EquipmentHandler EquipmentAPI
+
+	// KBHandler — база знаний (Б6). nil — маршруты БЗ остаются заглушками 501.
+	KBHandler KBAPI
 }
 
 // Server — собранный HTTP-сервер.
