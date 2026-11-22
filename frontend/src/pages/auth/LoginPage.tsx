@@ -1,29 +1,27 @@
 /**
  * `/login` — вход сотрудника (AUTH-1).
  *
- * Форма на react-hook-form + zod: клиентская валидация только для UX,
- * решение о допуске принимает сервер (`401 INVALID_CREDENTIALS` без раскрытия
- * существования логина). После входа с `must_change_password` сотрудник
- * попадает на смену пароля (AUTH-4).
+ * Форма на antd `Form` + `Form.useForm` + `onFinish` (как `/change-password`
+ * и `/profile`): связка RHF `register` с antd `Input` не передавала значения
+ * в состояние формы, из-за чего валидация видела пустые поля и submit уходил
+ * с пустыми `login/password`. Решение о допуске принимает сервер
+ * (`401 INVALID_CREDENTIALS` без раскрытия существования логина).
+ * После входа с `must_change_password` сотрудник попадает на смену пароля
+ * (AUTH-4), иначе — на `state.from` или `/tickets`.
  */
 import { useState } from 'react';
 import { LockOutlined, LoginOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { z } from 'zod';
 import { ApiError, isApiError } from '@/api/errors';
 import { APP_DESCRIPTION, APP_NAME } from '@/app/config';
 import { useAuth } from '@/auth/AuthContext';
 import { toast } from '@/app/toast';
 
-const loginSchema = z.object({
-  login: z.string().trim().min(1, 'Введите логин'),
-  password: z.string().min(1, 'Введите пароль'),
-});
-
-type LoginFormValues = z.infer<typeof loginSchema>;
+interface LoginFormValues {
+  login: string;
+  password: string;
+}
 
 interface LocationState {
   from?: string;
@@ -33,21 +31,16 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const [form] = Form.useForm<LoginFormValues>();
   const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: { login: '', password: '' },
-  });
-
-  const onSubmit = async (values: LoginFormValues) => {
+  const onFinish = async (values: LoginFormValues) => {
     setFormError(null);
+    setSubmitting(true);
     try {
-      const user = await login(values);
+      // AUTH-1: логин без пробелов по краям, решение о допуске — на сервере.
+      const user = await login({ login: values.login.trim(), password: values.password });
       toast.success(`Добро пожаловать, ${user.full_name}`);
       const state = location.state as LocationState | null;
       if (user.must_change_password) {
@@ -67,6 +60,8 @@ export function LoginPage() {
       if (error instanceof ApiError && error.status === 429) {
         setFormError('Слишком много попыток входа. Подождите 10 минут.');
       }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -96,14 +91,23 @@ export function LoginPage() {
           />
         ) : null}
 
-        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+        <Form<LoginFormValues>
+          form={form}
+          layout="vertical"
+          requiredMark={false}
+          onFinish={onFinish}
+          initialValues={{ login: '', password: '' }}
+          data-testid="login-form"
+        >
           <Form.Item
             label="Логин"
-            validateStatus={errors.login ? 'error' : undefined}
-            help={errors.login?.message}
+            name="login"
+            rules={[
+              { required: true, whitespace: true, message: 'Введите логин' },
+              { max: 120, message: 'Логин — не более 120 символов' },
+            ]}
           >
             <Input
-              {...register('login')}
               prefix={<UserOutlined />}
               placeholder="ivanov"
               autoComplete="username"
@@ -115,11 +119,10 @@ export function LoginPage() {
 
           <Form.Item
             label="Пароль"
-            validateStatus={errors.password ? 'error' : undefined}
-            help={errors.password?.message}
+            name="password"
+            rules={[{ required: true, message: 'Введите пароль' }]}
           >
             <Input.Password
-              {...register('password')}
               prefix={<LockOutlined />}
               placeholder="••••••••"
               autoComplete="current-password"
@@ -135,12 +138,12 @@ export function LoginPage() {
             block
             size="large"
             icon={<LoginOutlined />}
-            loading={isSubmitting}
+            loading={submitting}
             data-testid="login-submit"
           >
             Войти
           </Button>
-        </form>
+        </Form>
 
         {import.meta.env.DEV ? (
           <Alert
