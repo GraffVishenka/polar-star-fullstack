@@ -19,7 +19,9 @@ function toQuery(
     page: params.page,
     size: params.size,
     status: params.status,
-    executor_id: params.executor_id,
+    // TICKET-15: `null` означает «без исполнителя». Пустое значение клиент
+    // отбрасывает (buildUrl), поэтому для null передаём сентинел `none`.
+    executor_id: params.executor_id === null ? 'none' : params.executor_id,
     problem_type_id: params.problem_type_id,
     // TICKET-7: у USER фильтр заблокирован на своём здании и сервер его игнорирует.
     building_id: params.building_id === 'all' ? undefined : params.building_id,

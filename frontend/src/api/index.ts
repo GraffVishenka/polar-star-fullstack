@@ -14,4 +14,5 @@ export * from './tickets';
 export * from './kb';
 export * from './equipment';
 export * from './admin';
+export * from './dictionaries';
 export * from './stats';

@@ -1363,11 +1363,16 @@ export function toTicketListParams(url: URL): TicketListParams {
     const parsed = value === null ? Number.NaN : Number(value);
     return Number.isSafeInteger(parsed) ? parsed : undefined;
   };
+  // «Без исполнителя»: клиент передаёт сентинел `none` (TICKET-15).
+  const executorRaw = url.searchParams.get('executor_id');
+  const executorId =
+    executorRaw === 'none' ? null : executorRaw === null ? undefined : numeric('executor_id');
+
   return {
     page: numeric('page'),
     size: numeric('size'),
     status: status.length ? status : undefined,
-    executor_id: numeric('executor_id'),
+    executor_id: executorId,
     problem_type_id: numeric('problem_type_id'),
     building_id: numeric('building_id'),
     date_from: url.searchParams.get('date_from') ?? undefined,
@@ -1396,7 +1401,10 @@ export function filterTickets(
 
   if (params.status?.length)
     items = items.filter((ticket) => params.status!.includes(ticket.status));
-  if (params.executor_id !== undefined) {
+  if (params.executor_id === null) {
+    // «Без исполнителя» (TICKET-8: ADMIN снимает исполнителя).
+    items = items.filter((ticket) => ticket.executor_id === null);
+  } else if (params.executor_id !== undefined) {
     items = items.filter((ticket) => ticket.executor_id === params.executor_id);
   }
   if (params.problem_type_id !== undefined) {
