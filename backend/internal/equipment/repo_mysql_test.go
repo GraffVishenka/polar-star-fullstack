@@ -14,8 +14,9 @@ import (
 )
 
 // testDB подключается к MySQL из TEST_DATABASE_URL. На машине разработки БД нет
-// (docs/ENVIRONMENT.md), поэтому без переменной тест пропускается; в CI схема
-// уже создана `make migrate`.
+// (docs/ENVIRONMENT.md), поэтому без переменной тест пропускается. Недоступная
+// база или неприменённая схема — тоже пропуск, чтобы `go test ./...` проходил
+// там, где MySQL не подготовлен.
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -24,12 +25,18 @@ func testDB(t *testing.T) *sql.DB {
 	}
 	pool, err := sql.Open("mysql", dsn)
 	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
+		t.Skipf("TEST_DATABASE_URL некорректен: %v", err)
 	}
 	pool.SetMaxOpenConns(50)
 	if err := pool.Ping(); err != nil {
 		_ = pool.Close()
-		t.Fatalf("ping MySQL: %v", err)
+		t.Skipf("тестовая БД недоступна (нужен MySQL и применённые миграции): %v", err)
+	}
+	var name string
+	if err := pool.QueryRow(`SELECT table_name FROM information_schema.tables
+		WHERE table_schema = DATABASE() AND table_name = 'equipment_movements' LIMIT 1`).Scan(&name); err != nil {
+		_ = pool.Close()
+		t.Skip("схема не применена: выполните make migrate для тестовой БД")
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	return pool

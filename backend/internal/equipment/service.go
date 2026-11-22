@@ -163,7 +163,7 @@ func mapError(err error) error {
 		return apierr.Conflict(apierr.CodeSameWarehouse, "Оборудование уже находится в этом складе")
 	case errors.Is(err, ErrBuildingInactive):
 		return apierr.New(http.StatusUnprocessableEntity, apierr.CodeBuildingInactive,
-			"Здание склада деактивировано: доступно только администратору")
+			"Здание деактивировано: размещение оборудования доступно только администратору")
 	default:
 		return apierr.Internal(err)
 	}
