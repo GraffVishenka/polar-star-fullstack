@@ -26,6 +26,8 @@ CREATE TABLE warehouses (
     name        VARCHAR(200)    NOT NULL,
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at  DATETIME        NULL,
+    -- generated-колонка объявляется после базовых колонок (требование MySQL к
+    -- порядку ссылок) и хранит имя только у неудалённой строки.
     live_name   VARCHAR(200) GENERATED ALWAYS AS (IF(deleted_at IS NULL, name, NULL)) STORED,
     PRIMARY KEY (id),
     UNIQUE KEY uq_warehouses_building_name (building_id, name, deleted_at),
@@ -51,6 +53,9 @@ CREATE TABLE equipment (
     created_at               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at               DATETIME        NULL,
+    -- generated-колонка после базовых полей: значение есть только у
+    -- неудалённой единицы, поэтому UNIQUE не мешает повторно использовать
+    -- регистрационный номер после удаления в корзину (EQ-2).
     registration_number_live VARCHAR(100) GENERATED ALWAYS AS (
         IF(deleted_at IS NULL, registration_number, NULL)
         ) STORED,
