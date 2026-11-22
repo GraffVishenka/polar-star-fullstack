@@ -55,10 +55,12 @@ jobs:
           code=$?
           if [ $code -ne 0 ]; then
             echo "--- failing tests ---"
-            grep -E '"Action":"(fail|output)"' /tmp/tests.json | grep -E 'FAIL|Error|panic|expected|got' | head -40 || true
-            # Аннотации видны через GitHub API даже без доступа к логам.
             grep '"Action":"fail"' /tmp/tests.json | head -15 | while IFS= read -r line; do
               echo "::error::$(printf '%s' "$line" | cut -c1-400)"
+            done
+            echo "--- last output ---"
+            grep '"Action":"output"' /tmp/tests.json | tail -25 | while IFS= read -r line; do
+              echo "::error::$(printf '%s' "$line" | cut -c1-800)"
             done
             exit $code
           fi
