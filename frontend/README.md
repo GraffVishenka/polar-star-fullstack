@@ -72,16 +72,16 @@ src/
 
 ## Права и маршруты
 
-| Маршрут                                   | Доступ                     | Состояние Ф1                                      |
-| ----------------------------------------- | -------------------------- | ------------------------------------------------- |
-| `/`                                       | аноним (`RequireAnonOnly`) | выбор здания с реальными счётчиками               |
-| `/b/:buildingId`, `/b/all`                | все                        | каркас публичного дашборда (3 колонки без `done`) |
-| `/t/:token`                               | все (по токену)            | карточка по токену: поля, комментарии, Word       |
-| `/public/kb`                              | все                        | заглушка Ф3 (fe-2)                                |
-| `/login`, `/change-password`              | аноним / авторизованный    | реальные формы (RHF + zod)                        |
+| Маршрут                                   | Доступ                     | Состояние Ф1                                         |
+| ----------------------------------------- | -------------------------- | ---------------------------------------------------- |
+| `/`                                       | аноним (`RequireAnonOnly`) | выбор здания с реальными счётчиками                  |
+| `/b/:buildingId`, `/b/all`                | все                        | каркас публичного дашборда (3 колонки без `done`)    |
+| `/t/:token`                               | все (по токену)            | карточка по токену: поля, комментарии, Word          |
+| `/public/kb`                              | все                        | заглушка Ф3 (fe-2)                                   |
+| `/login`, `/change-password`              | аноним / авторизованный    | реальные формы (RHF + zod)                           |
 | `/tickets`                                | авторизованные             | доска 4 колонки, фильтры, карточка, комментарии (Ф2) |
-| `/kb`, `/equipment`, `/stats`, `/profile` | авторизованные             | заглушки Ф3/Ф4/Ф10                                |
-| `/admin/*`                                | только `ADMIN`             | заглушки Ф6/Ф7/Ф10                                |
+| `/kb`, `/equipment`, `/stats`, `/profile` | авторизованные             | заглушки Ф3/Ф4/Ф10                                   |
+| `/admin/*`                                | только `ADMIN`             | заглушки Ф6/Ф7/Ф10                                   |
 
 Заглушки живут в `src/pages/placeholders/PlaceholderPage.tsx` — они **не занимают**
 каталоги чужих агентов. Замена — одна строка в `src/app/routes/appRoutes.tsx`.
@@ -92,14 +92,14 @@ src/
 из серверного `total`. Пагинация каждой колонки — `useInfiniteQuery` («Показать ещё»),
 фильтры — в URL, поэтому ссылку можно переслать:
 
-| Параметр URL | Значение |
-| --- | --- |
-| `status` | повторяющийся параметр (`status=new&status=done`) |
-| `executor_id` | `none` — без исполнителя, `me` — только мои, число — конкретный сотрудник |
-| `problem_type_id`, `building_id` | справочники; у USER здание принудительно своё (TICKET-7) |
-| `date_from`, `date_to` | `YYYY-MM-DD`, фильтр по дате создания |
-| `search` | заявитель или кабинет |
-| `sort_by`, `sort_dir` | `created_at`/`deadline`, `asc`/`desc` |
+| Параметр URL                     | Значение                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------- |
+| `status`                         | повторяющийся параметр (`status=new&status=done`)                         |
+| `executor_id`                    | `none` — без исполнителя, `me` — только мои, число — конкретный сотрудник |
+| `problem_type_id`, `building_id` | справочники; у USER здание принудительно своё (TICKET-7)                  |
+| `date_from`, `date_to`           | `YYYY-MM-DD`, фильтр по дате создания                                     |
+| `search`                         | заявитель или кабинет                                                     |
+| `sort_by`, `sort_dir`            | `created_at`/`deadline`, `asc`/`desc`                                     |
 
 Права в UI повторяют матрицу §3.1 (сервер проверяет то же самое):
 
@@ -124,18 +124,18 @@ MSW-хендлеры заявок — `src/mocks/handlers/tickets.ts` (влад�
 
 Все эндпоинты §3.13. Хендлеры разбиты по доменам — правит только владелец домена:
 
-| Файл                    | Эндпоинты                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| `handlers/auth.ts`      | `/auth/login                                                                                | refresh                       | logout | me  | password`, push-подписки |
-| `handlers/public.ts`    | `/public/buildings`, `/public/tickets*`, `/public/files/:id`, `/public/kb/*`                |
-| `handlers/tickets.ts`   | `/tickets*`, комментарии, `export.docx`, `/users/assignable`                                |
-| `handlers/kb.ts`        | `/kb/tree                                                                                   | nodes*`, `move`, `visibility` |
-| `handlers/equipment.ts` | `/buildings*`, `/warehouses*`, `/equipment*`, `inventory.xlsx`                              |
-| `handlers/admin.ts`     | `/admin/users*`, `/admin/settings`, справочники, праздники, `/admin/trash*`, `/admin/stats` |
-| `handlers/stats.ts`     | `/stats/me`, `/stats/export.xlsx`                                                           |
-| `handlers/files.ts`     | `/files` (multipart), `/files/:id`                                                          |
-| `handlers/dictionaries.ts` | `GET /api/problem-types` — аддитивное расширение, см. «Ограничения Ф2»                   |
-| `handlers/health.ts`    | `/health`, `/health/ready`                                                                  |
+| Файл                       | Эндпоинты                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `handlers/auth.ts`         | `/auth/login                                                                                | refresh                       | logout | me  | password`, push-подписки |
+| `handlers/public.ts`       | `/public/buildings`, `/public/tickets*`, `/public/files/:id`, `/public/kb/*`                |
+| `handlers/tickets.ts`      | `/tickets*`, комментарии, `export.docx`, `/users/assignable`                                |
+| `handlers/kb.ts`           | `/kb/tree                                                                                   | nodes*`, `move`, `visibility` |
+| `handlers/equipment.ts`    | `/buildings*`, `/warehouses*`, `/equipment*`, `inventory.xlsx`                              |
+| `handlers/admin.ts`        | `/admin/users*`, `/admin/settings`, справочники, праздники, `/admin/trash*`, `/admin/stats` |
+| `handlers/stats.ts`        | `/stats/me`, `/stats/export.xlsx`                                                           |
+| `handlers/files.ts`        | `/files` (multipart), `/files/:id`                                                          |
+| `handlers/dictionaries.ts` | `GET /api/problem-types` — аддитивное расширение, см. «Ограничения Ф2»                      |
+| `handlers/health.ts`       | `/health`, `/health/ready`                                                                  |
 
 Что моделируется «как на сервере»:
 
