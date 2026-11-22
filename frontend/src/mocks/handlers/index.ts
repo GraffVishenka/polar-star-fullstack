@@ -8,6 +8,7 @@ import { adminHandlers } from './admin';
 import { authHandlers } from './auth';
 import { equipmentHandlers } from './equipment';
 import { fileHandlers } from './files';
+import { healthHandlers } from './health';
 import { kbHandlers } from './kb';
 import { publicHandlers } from './public';
 import { statsHandlers } from './stats';
@@ -22,4 +23,5 @@ export const handlers = [
   ...adminHandlers,
   ...statsHandlers,
   ...fileHandlers,
+  ...healthHandlers,
 ];

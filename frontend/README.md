@@ -100,6 +100,7 @@ src/
 | `handlers/admin.ts`     | `/admin/users*`, `/admin/settings`, справочники, праздники, `/admin/trash*`, `/admin/stats` |
 | `handlers/stats.ts`     | `/stats/me`, `/stats/export.xlsx`                                                           |
 | `handlers/files.ts`     | `/files` (multipart), `/files/:id`                                                          |
+| `handlers/health.ts`    | `/health`, `/health/ready`                                                                  |
 
 Что моделируется «как на сервере»:
 
