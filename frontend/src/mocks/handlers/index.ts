@@ -6,6 +6,7 @@
  */
 import { adminHandlers } from './admin';
 import { authHandlers } from './auth';
+import { dictionaryHandlers } from './dictionaries';
 import { equipmentHandlers } from './equipment';
 import { fileHandlers } from './files';
 import { healthHandlers } from './health';
@@ -23,5 +24,6 @@ export const handlers = [
   ...adminHandlers,
   ...statsHandlers,
   ...fileHandlers,
+  ...dictionaryHandlers,
   ...healthHandlers,
 ];
