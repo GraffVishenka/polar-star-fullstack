@@ -187,10 +187,11 @@ k6 run deploy/k6/load.js
 ## 11. Документы и корзина (Б11, Б10)
 
 ```bash
-# Word по заявке (id из списка заявок)
+# Word по заявке (ID возьмите из GET /api/tickets: items[0].id)
+TICKET_ID=1
 curl -s -o /tmp/ticket.docx -w '%{http_code} %{content_type}\n' \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/tickets/1/export.docx
+  "http://localhost:8080/api/tickets/$TICKET_ID/export.docx"
 # ожидается: 200 application/vnd.openxmlformats-officedocument.wordprocessingml.document
 
 # Excel статистики
@@ -198,18 +199,19 @@ curl -s -o /tmp/stats.xlsx -w '%{http_code} %{content_type}\n' \
   -H "Authorization: Bearer $TOKEN" \
   'http://localhost:8080/api/stats/export.xlsx?from=2026-01-01&to=2026-12-31'
 
-# Ведомость помещения (id склада из GET /api/warehouses)
+# Ведомость помещения (WAREHOUSE_ID из GET /api/warehouses: items[0].id)
+WAREHOUSE_ID=1
 curl -s -o /tmp/inventory.xlsx -w '%{http_code}\n' \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/warehouses/1/inventory.xlsx
+  "http://localhost:8080/api/warehouses/$WAREHOUSE_ID/inventory.xlsx"
 
 # Корзина: удалить заявку ADMIN'ом и проверить список/восстановление
 curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/tickets/1
+  -o /dev/null -w '%{http_code}\n' "http://localhost:8080/api/tickets/$TICKET_ID"
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/admin/trash | head -c 400
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -o /dev/null -w '%{http_code}\n' \
-  http://localhost:8080/api/admin/trash/ticket/1/restore
+  "http://localhost:8080/api/admin/trash/ticket/$TICKET_ID/restore"
 # ожидается: 204/200 (удаление), items с deleted_by_* в списке, восстановление 200
 ```
 
