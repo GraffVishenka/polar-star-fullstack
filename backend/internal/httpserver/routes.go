@@ -54,7 +54,7 @@ func (s *Server) routes() http.Handler {
 		// пути, внутри запроса транслируется в ?token= для files-слоя (Б3).
 		api.With(middleware.RateLimit(s.publicFilesLimiter, middleware.ClientIPKey)).
 			Post("/public/tickets/{token}/files", s.publicTicketUpload)
-		api.Get("/public/tickets/{token}/export.docx", s.notImplemented)
+		api.Get("/public/tickets/{token}/export.docx", s.publicTicketDOCX)
 
 		// Файлы анонимной заявки (Б3, TICKET-13/TICKET-14).
 		// Чтение — по access_token заявки; загрузка вложения анонимом — тот же
@@ -131,7 +131,7 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 	r.Post("/tickets", s.ticketsCreate)
 	r.Get("/tickets/{id}", s.ticketsGet)
 	r.Patch("/tickets/{id}", s.ticketsUpdate)
-	r.Get("/tickets/{id}/export.docx", s.notImplemented)
+	r.Get("/tickets/{id}/export.docx", s.ticketDOCX)
 	r.Get("/tickets/{id}/comments", s.ticketsListComments)
 	r.Post("/tickets/{id}/comments", s.ticketsCreateComment)
 
@@ -170,7 +170,7 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 	} else {
 		r.Get("/stats/me", s.notImplemented)
 	}
-	r.Get("/stats/export.xlsx", s.notImplemented)
+	r.Get("/stats/export.xlsx", s.statsXLSX)
 
 	// Справочники: чтение активных — всем авторизованным (Б7). include_inactive
 	// учитывается только для ADMIN (проверка в handler'е).
@@ -211,8 +211,8 @@ func (s *Server) authorizedRoutes(r chi.Router) {
 		r.Post("/equipment/{id}/move", s.notImplemented)
 		r.Get("/equipment/{id}/movements", s.notImplemented)
 	}
-	// Ведомость помещения (EQ-8) — блок Б6/Б10.
-	r.Get("/warehouses/{id}/inventory.xlsx", s.notImplemented)
+	// Ведомость помещения (EQ-8): Excel с подписями, Б11.
+	r.Get("/warehouses/{id}/inventory.xlsx", s.inventoryXLSX)
 
 	// Push (Б8): публичный ключ VAPID и подписки устройств.
 	if ph := s.deps.PushHandler; ph != nil {
@@ -482,4 +482,37 @@ func (s *Server) publicTicketUpload(w http.ResponseWriter, r *http.Request) {
 		r.URL.RawQuery = query.Encode()
 	}
 	s.deps.FilesHandler.PublicUpload(w, r)
+}
+
+// Обёртки Б11: DOC-1/STATS-3/EQ-8; при отсутствии handler'а — 501.
+func (s *Server) ticketDOCX(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DocumentsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.DocumentsHandler.TicketDOCX(w, r)
+}
+
+func (s *Server) publicTicketDOCX(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DocumentsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.DocumentsHandler.PublicTicketDOCX(w, r)
+}
+
+func (s *Server) statsXLSX(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DocumentsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.DocumentsHandler.StatsXLSX(w, r)
+}
+
+func (s *Server) inventoryXLSX(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DocumentsHandler == nil {
+		s.notImplemented(w, r)
+		return
+	}
+	s.deps.DocumentsHandler.InventoryXLSX(w, r)
 }

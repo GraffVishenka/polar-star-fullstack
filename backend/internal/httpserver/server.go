@@ -131,10 +131,19 @@ type PushAPI interface {
 }
 
 // StatsAPI — статистика (Б9, STATS-1): личная и сводная для ADMIN. Выгрузка
-// `.xlsx` остаётся за Б11.
+// `.xlsx` — Б11 (DocumentsAPI).
 type StatsAPI interface {
 	Me(w http.ResponseWriter, r *http.Request)
 	Admin(w http.ResponseWriter, r *http.Request)
+}
+
+// DocumentsAPI — серверные выгрузки Б11: Word-заявка (DOC-1), Excel-статистика
+// (STATS-3) и ведомость помещения (EQ-8).
+type DocumentsAPI interface {
+	TicketDOCX(w http.ResponseWriter, r *http.Request)
+	PublicTicketDOCX(w http.ResponseWriter, r *http.Request)
+	StatsXLSX(w http.ResponseWriter, r *http.Request)
+	InventoryXLSX(w http.ResponseWriter, r *http.Request)
 }
 
 // Deps — зависимости HTTP-слоя. Передаются из main, чтобы сервер не создавал
@@ -176,6 +185,9 @@ type Deps struct {
 	// StatsHandler — статистика (Б9). nil — маршруты статистики остаются
 	// заглушками 501.
 	StatsHandler StatsAPI
+
+	// DocumentsHandler — Word/Excel-выгрузки Б11; nil — 501 на их маршрутах.
+	DocumentsHandler DocumentsAPI
 }
 
 // Server — собранный HTTP-сервер.

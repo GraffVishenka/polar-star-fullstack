@@ -27,6 +27,15 @@ func (s *Service) List(ctx context.Context, filter ListFilter) (*ListResult, err
 	return &ListResult{Items: items, Total: total, Page: filter.Page, Size: filter.Size}, nil
 }
 
+// Warehouse — информация о складе/помещении (EQ-8: шапка ведомости).
+func (s *Service) Warehouse(ctx context.Context, id int64) (*WarehouseInfo, error) {
+	info, err := s.repo.WarehouseInfo(ctx, id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return info, nil
+}
+
 // Get — карточка единицы.
 func (s *Service) Get(ctx context.Context, id int64) (*Equipment, error) {
 	item, err := s.repo.ByID(ctx, id)
