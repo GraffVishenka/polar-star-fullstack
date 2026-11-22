@@ -58,10 +58,24 @@ jobs:
             grep '"Action":"fail"' /tmp/tests.json | head -15 | while IFS= read -r line; do
               echo "::error::$(printf '%s' "$line" | cut -c1-400)"
             done
-            echo "--- last output ---"
-            grep '"Action":"output"' /tmp/tests.json | tail -25 | while IFS= read -r line; do
-              echo "::error::$(printf '%s' "$line" | cut -c1-800)"
-            done
+            echo "--- output of failing tests ---"
+            python3 - <<'PY'
+import json
+fails, out = set(), {}
+for line in open('/tmp/tests.json', encoding='utf-8'):
+    try:
+        e = json.loads(line)
+    except Exception:
+        continue
+    key = (e.get('Package'), e.get('Test'))
+    if e.get('Action') == 'fail' and e.get('Test'):
+        fails.add(key)
+    if e.get('Action') == 'output' and e.get('Test'):
+        out.setdefault(key, []).append(e.get('Output', ''))
+for key in fails:
+    for text in out.get(key, [])[-15:]:
+        print('::error::' + text.replace('\n', ' ')[:900])
+PY
             exit $code
           fi
 

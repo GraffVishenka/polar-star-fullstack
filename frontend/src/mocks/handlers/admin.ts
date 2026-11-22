@@ -14,6 +14,7 @@ import {
   nextId,
   toAdminUser,
   toTrashItem,
+  type MockDictionaryItem,
   type MockUser,
 } from '../db';
 import {
@@ -73,6 +74,73 @@ function validateUserBuilding(role: string, buildingId: number | null | undefine
   // AUTH-8: перевод в неактивное здание запрещён.
   if (!building.is_active) return 'BUILDING_INACTIVE';
   return null;
+}
+
+// --- Справочники (Ф6): деактивация вместо удаления -------------------------
+
+type DictionaryKind = 'problem' | 'equipment';
+
+function dictionaryOf(kind: DictionaryKind): MockDictionaryItem[] {
+  return kind === 'problem' ? db.problemTypes : db.equipmentTypes;
+}
+
+/** Сколько действующих записей ссылается на значение справочника. */
+function dictionaryUsage(kind: DictionaryKind, id: number): number {
+  return kind === 'problem'
+    ? db.tickets.filter((ticket) => ticket.problem_type_id === id && ticket.deleted_at === null)
+        .length
+    : db.equipment.filter((item) => item.equipment_type_id === id && item.deleted_at === null)
+        .length;
+}
+
+function toDictionary(item: MockDictionaryItem, kind: DictionaryKind) {
+  return { ...item, usage_count: dictionaryUsage(kind, item.id) };
+}
+
+function sortedDictionaries(kind: DictionaryKind) {
+  return [...dictionaryOf(kind)].sort(
+    (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
+  );
+}
+
+function nextDictionarySortOrder(kind: DictionaryKind): number {
+  const items = dictionaryOf(kind);
+  return items.length ? Math.max(...items.map((item) => item.sort_order)) + 10 : 10;
+}
+
+function dictionaryNameError(
+  kind: DictionaryKind,
+  name: string,
+  excludeId?: number,
+): { status: number; code: string; message: string } | null {
+  if (!name) return { status: 422, code: 'VALIDATION_ERROR', message: 'Укажите название' };
+  if (name.length > 100) {
+    return { status: 422, code: 'VALIDATION_ERROR', message: 'Название — не более 100 символов' };
+  }
+  const duplicate = dictionaryOf(kind).some(
+    (item) => item.id !== excludeId && item.name.toLowerCase() === name.toLowerCase(),
+  );
+  return duplicate ? { status: 409, code: 'CONFLICT', message: 'Такое название уже есть' } : null;
+}
+
+function parseDictionaryBody(body: {
+  name?: unknown;
+  sort_order?: unknown;
+  is_active?: unknown;
+}): { name?: string; sort_order?: number; is_active?: boolean; error?: string } {
+  const parsed: { name?: string; sort_order?: number; is_active?: boolean; error?: string } = {};
+  if (body.name !== undefined) {
+    parsed.name = typeof body.name === 'string' ? body.name.trim() : '';
+  }
+  if (body.sort_order !== undefined) {
+    const order = Number(body.sort_order);
+    if (!Number.isInteger(order) || order < 0 || order > 100_000) {
+      return { error: 'Порядок сортировки — целое число от 0' };
+    }
+    parsed.sort_order = order;
+  }
+  if (body.is_active !== undefined) parsed.is_active = Boolean(body.is_active);
+  return parsed;
 }
 
 export const adminHandlers = [
@@ -268,7 +336,14 @@ export const adminHandlers = [
     if (body.push_enabled !== undefined) db.settings.push_enabled = Boolean(body.push_enabled);
     if (body.app_name !== undefined) {
       const name = String(body.app_name).trim();
-      if (!name) return validation('Название приложения не может быть пустым');
+      if (!name) {
+        return validation('Название приложения не может быть пустым', { app_name: 'обязательное' });
+      }
+      if (name.length > 120) {
+        return validation('Название приложения — не более 120 символов', {
+          app_name: 'не более 120',
+        });
+      }
       db.settings.app_name = name;
     }
     if (body.statuses !== undefined) {
@@ -278,12 +353,23 @@ export const adminHandlers = [
         body.statuses.length !== 4 ||
         body.statuses.some((status) => !allowed.includes(status.code))
       ) {
-        return validation('Передайте названия и цвета для 4 фиксированных статусов');
+        return validation('Передайте названия и цвета для 4 фиксированных статусов', {
+          statuses: '4 фиксированных кода',
+        });
+      }
+      const invalidLabel = body.statuses.some((status) => !String(status.label).trim());
+      const invalidColor = body.statuses.some(
+        (status) => !/^#[0-9a-f]{6}$/i.test(String(status.color).trim()),
+      );
+      if (invalidLabel || invalidColor) {
+        return validation('Название статуса не пустое, цвет — HEX вида #RRGGBB', {
+          statuses: invalidLabel ? 'пустое название' : 'цвет #RRGGBB',
+        });
       }
       db.settings.statuses = body.statuses.map((status) => ({
         code: status.code,
-        label: String(status.label).trim() || status.code,
-        color: String(status.color).trim() || '#8c8c8c',
+        label: String(status.label).trim(),
+        color: String(status.color).trim(),
       }));
     }
 
@@ -291,25 +377,29 @@ export const adminHandlers = [
     return json({ ...db.settings, holidays: db.holidays });
   }),
 
-  // --- Справочники --------------------------------------------------------
+  // --- Справочники (Ф6): деактивация вместо удаления -----------------------
   http.get(`${API}/admin/problem-types`, ({ request }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
-    return json(db.problemTypes);
+    return json(sortedDictionaries('problem').map((item) => toDictionary(item, 'problem')));
   }),
 
   http.post(`${API}/admin/problem-types`, async ({ request }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
-    const body = await readBody<{ name?: string }>(request);
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    if (!name) return validation('Укажите название');
-    if (db.problemTypes.some((type) => type.name.toLowerCase() === name.toLowerCase())) {
-      return conflict('CONFLICT', 'Такой вид проблемы уже есть');
-    }
-    const item = { id: nextId(db.problemTypes), name };
+    const body = await readBody<{ name?: unknown; sort_order?: unknown }>(request);
+    const parsed = parseDictionaryBody(body);
+    if (parsed.error) return validation(parsed.error);
+    const nameError = dictionaryNameError('problem', parsed.name ?? '');
+    if (nameError) return fail(nameError.status, nameError.code, nameError.message);
+    const item: MockDictionaryItem = {
+      id: nextId(db.problemTypes),
+      name: parsed.name ?? '',
+      sort_order: parsed.sort_order ?? nextDictionarySortOrder('problem'),
+      is_active: true,
+    };
     db.problemTypes.push(item);
-    return created(item);
+    return created(toDictionary(item, 'problem'));
   }),
 
   http.patch(`${API}/admin/problem-types/:id`, async ({ request, params }) => {
@@ -317,17 +407,29 @@ export const adminHandlers = [
     if (!auth.ok) return auth.response;
     const item = db.problemTypes.find((type) => type.id === pathId(params.id));
     if (!item) return notFound('Вид проблемы не найден');
-    const body = await readBody<{ name?: string }>(request);
-    if (body.name !== undefined) item.name = String(body.name).trim();
-    return json(item);
+    const body = await readBody<{ name?: unknown; sort_order?: unknown; is_active?: unknown }>(
+      request,
+    );
+    const parsed = parseDictionaryBody(body);
+    if (parsed.error) return validation(parsed.error);
+    if (parsed.name !== undefined) {
+      const nameError = dictionaryNameError('problem', parsed.name, item.id);
+      if (nameError) return fail(nameError.status, nameError.code, nameError.message);
+      item.name = parsed.name;
+    }
+    if (parsed.sort_order !== undefined) item.sort_order = parsed.sort_order;
+    if (parsed.is_active !== undefined) item.is_active = parsed.is_active;
+    return json(toDictionary(item, 'problem'));
   }),
 
   http.delete(`${API}/admin/problem-types/:id`, ({ request, params }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
     const id = pathId(params.id) ?? 0;
-    const used = db.tickets.some((ticket) => ticket.problem_type_id === id);
-    if (used) return conflict('CONFLICT', 'Вид проблемы используется в заявках');
+    // Удаление в UI запрещено: деактивированный справочник остаётся в истории.
+    if (dictionaryUsage('problem', id) > 0) {
+      return conflict('CONFLICT', 'Вид проблемы используется в заявках — деактивируйте его');
+    }
     db.problemTypes = db.problemTypes.filter((type) => type.id !== id);
     return noContent();
   }),
@@ -335,18 +437,25 @@ export const adminHandlers = [
   http.get(`${API}/admin/equipment-types`, ({ request }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
-    return json(db.equipmentTypes);
+    return json(sortedDictionaries('equipment').map((item) => toDictionary(item, 'equipment')));
   }),
 
   http.post(`${API}/admin/equipment-types`, async ({ request }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
-    const body = await readBody<{ name?: string }>(request);
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    if (!name) return validation('Укажите название');
-    const item = { id: nextId(db.equipmentTypes), name };
+    const body = await readBody<{ name?: unknown; sort_order?: unknown }>(request);
+    const parsed = parseDictionaryBody(body);
+    if (parsed.error) return validation(parsed.error);
+    const nameError = dictionaryNameError('equipment', parsed.name ?? '');
+    if (nameError) return fail(nameError.status, nameError.code, nameError.message);
+    const item: MockDictionaryItem = {
+      id: nextId(db.equipmentTypes),
+      name: parsed.name ?? '',
+      sort_order: parsed.sort_order ?? nextDictionarySortOrder('equipment'),
+      is_active: true,
+    };
     db.equipmentTypes.push(item);
-    return created(item);
+    return created(toDictionary(item, 'equipment'));
   }),
 
   http.patch(`${API}/admin/equipment-types/:id`, async ({ request, params }) => {
@@ -354,17 +463,27 @@ export const adminHandlers = [
     if (!auth.ok) return auth.response;
     const item = db.equipmentTypes.find((type) => type.id === pathId(params.id));
     if (!item) return notFound('Тип оборудования не найден');
-    const body = await readBody<{ name?: string }>(request);
-    if (body.name !== undefined) item.name = String(body.name).trim();
-    return json(item);
+    const body = await readBody<{ name?: unknown; sort_order?: unknown; is_active?: unknown }>(
+      request,
+    );
+    const parsed = parseDictionaryBody(body);
+    if (parsed.error) return validation(parsed.error);
+    if (parsed.name !== undefined) {
+      const nameError = dictionaryNameError('equipment', parsed.name, item.id);
+      if (nameError) return fail(nameError.status, nameError.code, nameError.message);
+      item.name = parsed.name;
+    }
+    if (parsed.sort_order !== undefined) item.sort_order = parsed.sort_order;
+    if (parsed.is_active !== undefined) item.is_active = parsed.is_active;
+    return json(toDictionary(item, 'equipment'));
   }),
 
   http.delete(`${API}/admin/equipment-types/:id`, ({ request, params }) => {
     const auth = guard(request, 'ADMIN');
     if (!auth.ok) return auth.response;
     const id = pathId(params.id) ?? 0;
-    if (db.equipment.some((item) => item.equipment_type_id === id && item.deleted_at === null)) {
-      return conflict('CONFLICT', 'Тип используется в оборудовании');
+    if (dictionaryUsage('equipment', id) > 0) {
+      return conflict('CONFLICT', 'Тип используется в оборудовании — деактивируйте его');
     }
     db.equipmentTypes = db.equipmentTypes.filter((type) => type.id !== id);
     return noContent();
@@ -395,6 +514,31 @@ export const adminHandlers = [
     };
     db.holidays.push(holiday);
     return created(holiday);
+  }),
+
+  http.patch(`${API}/admin/holidays/:id`, async ({ request, params }) => {
+    const auth = guard(request, 'ADMIN');
+    if (!auth.ok) return auth.response;
+    const holiday = db.holidays.find((item) => item.id === pathId(params.id));
+    if (!holiday) return notFound('Праздник не найден');
+    const body = await readBody<{ date?: string; name?: string }>(request);
+    if (body.date !== undefined) {
+      const date = String(body.date).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return validation('Дата праздника в формате YYYY-MM-DD', { date: 'YYYY-MM-DD' });
+      }
+      // Дубликат даты ломает идемпотентность рабочих дней.
+      if (db.holidays.some((item) => item.id !== holiday.id && item.date === date)) {
+        return conflict('CONFLICT', 'Праздник на эту дату уже добавлен');
+      }
+      holiday.date = date;
+    }
+    if (body.name !== undefined) {
+      const name = String(body.name).trim();
+      if (!name) return validation('Название праздника не может быть пустым', { name: 'обязательное' });
+      holiday.name = name;
+    }
+    return json(holiday);
   }),
 
   http.delete(`${API}/admin/holidays/:id`, ({ request, params }) => {

@@ -69,6 +69,17 @@ export interface MockWarehouse {
   created_at: string;
 }
 
+/**
+ * Справочник (виды проблем, типы оборудования). Деактивация вместо удаления:
+ * значения остаются в старых заявках/оборудовании (Ф6).
+ */
+export interface MockDictionaryItem {
+  id: number;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
 export interface MockEquipment {
   id: number;
   name: string;
@@ -195,8 +206,8 @@ export interface MockPushSubscription {
 export interface MockDb {
   buildings: MockBuilding[];
   users: MockUser[];
-  problemTypes: Array<{ id: number; name: string }>;
-  equipmentTypes: Array<{ id: number; name: string }>;
+  problemTypes: MockDictionaryItem[];
+  equipmentTypes: MockDictionaryItem[];
   warehouses: MockWarehouse[];
   equipment: MockEquipment[];
   movements: MockMovement[];
@@ -876,17 +887,20 @@ export function createSeed(): MockDb {
     buildings: seedBuildings(),
     users: seedUsers(),
     problemTypes: [
-      { id: 1, name: 'Освещение' },
-      { id: 2, name: 'Протечка / сантехника' },
-      { id: 3, name: 'Неисправность оборудования' },
-      { id: 4, name: 'Уборка' },
-      { id: 5, name: 'Прочее' },
+      { id: 1, name: 'Освещение', sort_order: 10, is_active: true },
+      { id: 2, name: 'Протечка / сантехника', sort_order: 20, is_active: true },
+      { id: 3, name: 'Неисправность оборудования', sort_order: 30, is_active: true },
+      { id: 4, name: 'Уборка', sort_order: 40, is_active: true },
+      // Ф6: деактивированный справочник остаётся в старых заявках (ТИКЕТ-2).
+      { id: 5, name: 'Прочее', sort_order: 50, is_active: true },
+      { id: 6, name: 'Устаревший вид (неактивен)', sort_order: 60, is_active: false },
     ],
     equipmentTypes: [
-      { id: 1, name: 'Компьютер' },
-      { id: 2, name: 'Принтер' },
-      { id: 3, name: 'Мебель' },
-      { id: 4, name: 'Монитор' },
+      { id: 1, name: 'Компьютер', sort_order: 10, is_active: true },
+      { id: 2, name: 'Принтер', sort_order: 20, is_active: true },
+      { id: 3, name: 'Мебель', sort_order: 30, is_active: true },
+      { id: 4, name: 'Монитор', sort_order: 40, is_active: true },
+      { id: 5, name: 'Устаревший тип (неактивен)', sort_order: 50, is_active: false },
     ],
     warehouses,
     equipment,
