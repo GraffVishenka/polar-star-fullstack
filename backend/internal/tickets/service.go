@@ -239,6 +239,12 @@ func (s *Service) Get(ctx context.Context, actor *auth.User, id int64) (*Ticket,
 	return s.accessTicket(ctx, actor, id)
 }
 
+// StatusLabel — человекочитаемое название статуса с учётом настроек Б7.
+func (s *Service) StatusLabel(status Status) string {
+	label, _ := s.statusStyle(status)
+	return label
+}
+
 // Update изменяет заявку по правилам TICKET-8..TICKET-11. Возвращает флаг
 // executor_reset (TICKET-9).
 func (s *Service) Update(ctx context.Context, actor *auth.User, id int64, input UpdateInput) (*Ticket, bool, error) {
