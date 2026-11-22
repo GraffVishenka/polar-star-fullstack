@@ -80,15 +80,21 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get — GET|HEAD /api/files/{id} (USER/ADMIN). Выдача inline с поддержкой
-// Range/206 и HEAD; права проверяются аутентификацией маршрута, а ограничение
-// по зданию заявки добавляет Б5 через TicketTokenAuthorizer/свои проверки.
+// Range/206 и HEAD. Доступ к файлам заявок дополнительно проверяет
+// FileAccessAuthorizer (TICKET-7, реализация Б5); медиа БЗ доступны всем
+// авторизованным.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.UserFrom(r.Context())
+	if !ok {
+		h.fail(w, r, apierr.Unauthorized(apierr.CodeUnauthorized, "Требуется авторизация"))
+		return
+	}
 	id, ok := fileIDFromPath(r)
 	if !ok {
 		h.fail(w, r, apierr.NotFound("Файл не найден"))
 		return
 	}
-	file, body, err := h.svc.Open(r.Context(), id)
+	file, body, err := h.svc.OpenForUser(r.Context(), user, id)
 	if err != nil {
 		h.fail(w, r, err)
 		return

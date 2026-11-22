@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/graffvishenka/polar-star-service/backend/internal/auth"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform/apierr"
 )
@@ -46,6 +47,20 @@ type TicketTokenAuthorizer interface {
 	FileBelongsToTicketToken(ctx context.Context, fileID int64, token string) (bool, error)
 }
 
+// FileAccessAuthorizer — проверка доступа сотрудника к файлу заявки
+// (TICKET-7: USER видит только заявки своего здания, ADMIN — любые).
+//
+// Файлы области kb доступны всем авторизованным (как и сама БЗ, PLAN §3.1) и
+// этой проверке не подлежат. Пока авторизатор не задан (до Б5), файлы заявок
+// доступны любому авторизованному — контракт `GET /api/files/{id}` (USER/ADMIN).
+// Б5 обязана подключить реализацию через SetFileAccessAuthorizer, иначе
+// сохраняется возможность прочитать вложение чужой заявки по id (NFR-2).
+type FileAccessAuthorizer interface {
+	// CanReadFile сообщает, вправе ли сотрудник читать файл. Ответ false
+	// превращается в 404, чтобы не раскрывать существование файла.
+	CanReadFile(ctx context.Context, user *auth.User, file *File) (bool, error)
+}
+
 // Options — зависимости сервиса.
 type Options struct {
 	// Clock — источник времени (NFR-7: без time.Now() в бизнес-логике).
@@ -56,6 +71,9 @@ type Options struct {
 	MaxUploadBytes int64
 	// TicketAuthorizer — проверка токена анонимной заявки (реализация Б5).
 	TicketAuthorizer TicketTokenAuthorizer
+	// FileAccessAuthorizer — проверка доступа сотрудника к файлу заявки
+	// (реализация Б5: здание заявки, ADMIN — любое).
+	FileAccessAuthorizer FileAccessAuthorizer
 }
 
 // Service — бизнес-логика файлов: приём, сохранение метаданных, выдача,
@@ -67,6 +85,7 @@ type Service struct {
 	logger     *slog.Logger
 	maxUpload  int64
 	authorizer TicketTokenAuthorizer
+	access     FileAccessAuthorizer
 }
 
 // NewService создаёт сервис файлов.
@@ -84,12 +103,17 @@ func NewService(repo Repository, store *Storage, opts Options) *Service {
 		logger:     opts.Logger,
 		maxUpload:  opts.MaxUploadBytes,
 		authorizer: opts.TicketAuthorizer,
+		access:     opts.FileAccessAuthorizer,
 	}
 }
 
 // SetTicketAuthorizer подключает проверку токенов заявки (вызывает Б5 после
 // инициализации tickets-домена; до этого публичная выдача отдаёт 404).
 func (s *Service) SetTicketAuthorizer(a TicketTokenAuthorizer) { s.authorizer = a }
+
+// SetFileAccessAuthorizer подключает проверку доступа сотрудника к файлам
+// заявок (TICKET-7). Без неё файлы заявок доступны любому авторизованному.
+func (s *Service) SetFileAccessAuthorizer(a FileAccessAuthorizer) { s.access = a }
 
 // MaxUploadBytes — общий предел размера тела загрузки (для MaxBytesReader).
 func (s *Service) MaxUploadBytes() int64 { return s.maxUpload }
@@ -205,10 +229,45 @@ func (s *Service) SaveAnonymous(ctx context.Context, token string, pending *Pend
 // Open возвращает метаданные и открытый файл для выдачи. Файл должен быть
 // закрыт вызывающим (handler делает defer).
 func (s *Service) Open(ctx context.Context, id int64) (*File, io.ReadSeekCloser, error) {
+	f, err := s.fileByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s.openContent(f)
+}
+
+// OpenForUser выдаёт файл сотруднику с проверкой доступа к заявке (TICKET-7):
+// файлы области ticket проверяются FileAccessAuthorizer (реализация Б5 —
+// здание заявки), медиа БЗ доступны всем авторизованным (PLAN §3.1).
+func (s *Service) OpenForUser(ctx context.Context, user *auth.User, id int64) (*File, io.ReadSeekCloser, error) {
+	f, err := s.fileByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if f.Scope == ScopeTicket && s.access != nil && user != nil {
+		allowed, aerr := s.access.CanReadFile(ctx, user, f)
+		if aerr != nil {
+			return nil, nil, apierr.Internal(aerr)
+		}
+		if !allowed {
+			// 404 вместо 403: существование чужого вложения не раскрывается.
+			return nil, nil, apierr.NotFound("Файл не найден")
+		}
+	}
+	return s.openContent(f)
+}
+
+// fileByID читает метаданные файла и переводит ошибки репозитория в коды API.
+func (s *Service) fileByID(ctx context.Context, id int64) (*File, error) {
 	f, err := s.repo.Get(ctx, id)
 	if err != nil {
-		return nil, nil, mapRepoError(err)
+		return nil, mapRepoError(err)
 	}
+	return f, nil
+}
+
+// openContent открывает файл хранилища по метаданным.
+func (s *Service) openContent(f *File) (*File, io.ReadSeekCloser, error) {
 	fh, _, err := s.store.Open(f.StoredPath)
 	if err != nil {
 		if errors.Is(err, ErrUnsafePath) {

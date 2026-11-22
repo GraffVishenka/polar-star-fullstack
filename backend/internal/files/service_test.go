@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/graffvishenka/polar-star-service/backend/internal/auth"
 	"github.com/graffvishenka/polar-star-service/backend/internal/platform/apierr"
 )
 
@@ -369,4 +370,73 @@ func TestNewFileInfo(t *testing.T) {
 	if info.URL != "" {
 		t.Fatalf("url должен заполнять HTTP-слой, получено %q", info.URL)
 	}
+}
+
+// fakeAccess — заглушка FileAccessAuthorizer (реализация Б5).
+type fakeAccess struct {
+	allowed map[int64]bool
+	err     error
+}
+
+func (a *fakeAccess) CanReadFile(_ context.Context, _ *auth.User, f *File) (bool, error) {
+	if a.err != nil {
+		return false, a.err
+	}
+	return a.allowed[f.ID], nil
+}
+
+// TICKET-7: доступ сотрудника к вложению чужой заявки закрыт (404), к своим —
+// открыт; медиа БЗ проверке не подлежит (PLAN §3.1).
+func TestService_OpenForUserAccess(t *testing.T) {
+	access := &fakeAccess{allowed: map[int64]bool{}}
+	svc, _, _ := newTestService(t, Options{FileAccessAuthorizer: access})
+	ctx := context.Background()
+	user := &auth.User{ID: 1, Role: auth.RoleUser}
+
+	ticketFile := mustUploadFile(t, svc, "ticket.jpg")
+	kbPending, err := svc.Upload(ctx, bytes.NewReader(pngHead), "kb.png")
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	uploaderID := user.ID
+	kbFile, err := svc.Save(ctx, kbPending, UploadMeta{Scope: ScopeKB, UploaderID: &uploaderID})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Чужое вложение заявки → 404 (существование не раскрывается).
+	if _, _, err := svc.OpenForUser(ctx, user, ticketFile.ID); apiErrorStatus(t, err) != http.StatusNotFound {
+		t.Fatalf("чужой файл заявки: ожидался 404, получено %v", err)
+	}
+	// Разрешённое вложение открывается.
+	access.allowed[ticketFile.ID] = true
+	if _, body, err := svc.OpenForUser(ctx, user, ticketFile.ID); err != nil {
+		t.Fatalf("OpenForUser: %v", err)
+	} else {
+		_ = body.Close()
+	}
+	// Медиа БЗ доступно независимо от результата проверки по заявке.
+	if _, body, err := svc.OpenForUser(ctx, user, kbFile.ID); err != nil {
+		t.Fatalf("медиа БЗ должно быть доступно: %v", err)
+	} else {
+		_ = body.Close()
+	}
+	// Ошибка авторизатора → 500.
+	access.err = errors.New("db is down")
+	if _, _, err := svc.OpenForUser(ctx, user, ticketFile.ID); apiErrorStatus(t, err) != http.StatusInternalServerError {
+		t.Fatalf("ошибка авторизатора: ожидался 500, получено %v", err)
+	}
+}
+
+// Без FileAccessAuthorizer (до Б5) файлы заявок доступны авторизованным —
+// контракт GET /api/files/{id}.
+func TestService_OpenForUserWithoutAuthorizer(t *testing.T) {
+	svc, _, _ := newTestService(t, Options{})
+	ctx := context.Background()
+	f := mustUploadFile(t, svc, "ticket.jpg")
+	_, body, err := svc.OpenForUser(ctx, &auth.User{ID: 9, Role: auth.RoleUser}, f.ID)
+	if err != nil {
+		t.Fatalf("OpenForUser: %v", err)
+	}
+	_ = body.Close()
 }
