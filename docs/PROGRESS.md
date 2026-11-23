@@ -39,6 +39,10 @@
 ## Инфраструктура
 
 - CI GitHub Actions: backend (MySQL 8.4, миграции, тесты) + frontend (typecheck, lint, tests, build).
+- **Локальный полный стек (проверено 2026-11-23):** Docker Desktop 29.9.3 + WSL2,
+  `docker compose up -d --build`; MySQL 8.4, API и frontend (nginx) — healthy.
+  Миграции (9) и `seed --demo` применены; Go-тесты `go test -p 1 ./...` с MySQL —
+  все пакеты `ok`.
 - `scripts/dev-env.ps1`, `scripts/go-test-wasm.ps1` — локальная проверка в ограниченной Windows-среде.
 - `docs/ENVIRONMENT.md` — что можно и нельзя проверить локально.
 - CI аннотирует упавшие Go-тесты (`scripts/ci_test_report.py`), т.к. логи без токена недоступны.
